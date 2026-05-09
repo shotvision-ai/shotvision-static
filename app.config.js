@@ -1,0 +1,140 @@
+const fs = require("fs");
+const path = require("path");
+
+/**
+ * Read OAuth client IDs from android/app/google-services.json (Firebase Android app).
+ * client_type: 1 = Android, 2 = iOS, 3 = Web (Google Services JSON format).
+ *
+ * Never use the Web client ID as androidClientId/iosClientId — Google rejects custom scheme
+ * redirects (e.g. shotvision://) for WEB clients ("Custom scheme URIs are not allowed for WEB").
+ * Android needs client_type 1 (add SHA-1 in Firebase → download refreshed google-services.json),
+ * or set EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID from an Android OAuth client in Google Cloud Console.
+ */
+function readGoogleServicesOAuthIds() {
+  try {
+    const filePath = path.join(__dirname, "android/app/google-services.json");
+    const json = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const oauthClients = json.client?.[0]?.oauth_client ?? [];
+    let webId;
+    let androidId;
+    let iosId;
+    for (const oc of oauthClients) {
+      if (oc.client_type === 3) webId = oc.client_id;
+      if (oc.client_type === 1) androidId = oc.client_id;
+      if (oc.client_type === 2) iosId = oc.client_id;
+    }
+    const invite = json.client?.[0]?.services?.appinvite_service?.other_platform_oauth_client?.[0];
+    if (!webId && invite?.client_id) {
+      webId = invite.client_id;
+    }
+    return {
+      web: webId,
+      android: androidId,
+      ios: iosId,
+    };
+  } catch (e) {
+    console.warn("[app.config] Could not read google-services.json for Google OAuth defaults:", e?.message);
+    return { web: undefined, android: undefined, ios: undefined };
+  }
+}
+
+const gsOAuth = readGoogleServicesOAuthIds();
+
+/** iOS URL scheme for Google Sign-In when not using GoogleService-Info.plist (see RN Google Sign-In Expo plugin). */
+function iosUrlSchemeFromWebClientId(webClientId) {
+  if (!webClientId || typeof webClientId !== "string") return undefined;
+  const idPart = webClientId.replace(/\.apps\.googleusercontent\.com\s*$/i, "");
+  return `com.googleusercontent.apps.${idPart}`;
+}
+
+const webClientIdForPlugin =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || gsOAuth.web || "";
+const googleSignInIosUrlScheme = iosUrlSchemeFromWebClientId(webClientIdForPlugin);
+
+const plugins = [
+  "expo-dev-client",
+  "expo-font",
+  "expo-asset",
+  "expo-video",
+  "expo-web-browser",
+  "expo-secure-store",
+];
+
+if (googleSignInIosUrlScheme) {
+  plugins.push([
+    "@react-native-google-signin/google-signin",
+    { iosUrlScheme: googleSignInIosUrlScheme },
+  ]);
+}
+
+plugins.push(
+  [
+    "expo-router",
+    {
+      origin: "https://6bccff42e6.sandbox.draftbit.dev:5101",
+      headOrigin: "https://6bccff42e6.sandbox.draftbit.dev:5100",
+    },
+  ],
+  ["./plugins/draftbit-auto-launch-url-plugin"]
+);
+
+module.exports = {
+  name: "ShotVision",
+  slug: "shotvision",
+  version: "1.0.0",
+  scheme: "shotvision",
+
+  /** Passed to the app at runtime (see src/config/googleOAuth.ts). Env overrides google-services defaults. */
+  extra: {
+    googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || gsOAuth.web,
+    googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || gsOAuth.ios,
+    googleAndroidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || gsOAuth.android,
+  },
+
+  web: {
+    bundler: "metro",
+    output: "single",
+    favicon: "./assets/images/favicon.png",
+  },
+
+  plugins,
+
+  experiments: {
+    typedRoutes: true,
+    tsconfigPaths: true,
+  },
+
+  orientation: "portrait",
+
+  icon: "./assets/images/icon.png",
+
+  userInterfaceStyle: "automatic",
+
+  splash: {
+    image: "./assets/images/splash.png",
+    resizeMode: "contain",
+    backgroundColor: "#ffffff",
+  },
+
+  assetBundlePatterns: ["**/*"],
+
+  ios: {
+    supportsTablet: true,
+    buildNumber: "1",
+    bundleIdentifier: "com.shotvision.app",
+  },
+
+  android: {
+    package: "com.shotvision.app",
+    googleServicesFile: "./android/app/google-services.json",
+    versionCode: 1,
+
+    adaptiveIcon: {
+      foregroundImage: "./assets/images/adaptive-icon.png",
+      /** Matches sampled blue from `assets/images/brand-reference-source.png` */
+      backgroundColor: "#2664eb",
+    },
+  },
+
+  platforms: ["ios", "android", "web"],
+};

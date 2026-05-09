@@ -1,0 +1,68 @@
+const { withAppDelegate } = require("@expo/config-plugins/build/plugins/ios-plugins.js");
+const { mergeContents } = require("@expo/config-plugins/build/utils/generateCode.js");
+
+// Uses the injected `DraftbitDefaultLaunchURL` param by appetize to launch the given URL (for iOS).
+// This allows bypassing the confirmation dialog since the url is being launched from inside the app instead
+// of externally by appetize.
+
+const SWIFT_MATCH_INIT =
+/\bsuper\.application\(\w+?, didFinishLaunchingWithOptions: \w+?\)/g;
+
+const OBJ_C_MATCH_INIT =
+/-\s*\(BOOL\)\s*application:\s*\(UIApplication\s*\*\s*\)\s*\w+\s+didFinishLaunchingWithOptions:/g;
+
+const withDraftbitAutoLaunchUrl = (config) => {
+return withAppDelegate(config, async (conf) => {
+  const currentContents = conf.modResults.contents;
+
+  if (conf.modResults.language === "swift") {
+    const linesToInject = `
+      if let urlString = UserDefaults.standard.string(forKey: "DraftbitDefaultLaunchURL"),
+        let url = URL(string: urlString),
+        UIApplication.shared.canOpenURL(url) {
+          UIApplication.shared.open(url)
+      }
+    `;
+
+    const updatedContents = mergeContents({
+      tag: "draftbit-auto-launch-url",
+      src: currentContents,
+      newSrc: linesToInject,
+      anchor: SWIFT_MATCH_INIT,
+      offset: 0,
+      comment: "//",
+    });
+
+    conf.modResults.contents = updatedContents.contents;
+  } else if (conf.modResults.language === "objcpp") {
+    const linesToInject = `
+      NSString *urlString = [[NSUserDefaults standardUserDefaults] stringForKey:@"DraftbitDefaultLaunchURL"];
+      if (urlString != nil) {
+          NSURL *url = [NSURL URLWithString:urlString];
+          if (url && [[UIApplication sharedApplication] canOpenURL:url]) {
+              [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+          }
+      }
+    `;
+
+    const updatedContents = mergeContents({
+      tag: "draftbit-auto-launch-url",
+      src: currentContents,
+      newSrc: linesToInject,
+      anchor: OBJ_C_MATCH_INIT,
+      offset: 2,
+      comment: "//",
+    });
+
+    conf.modResults.contents = updatedContents.contents;
+  } else {
+    throw new Error(
+      `Failed to inject Draftbit auto launch URL logic, app is an unsupported language: ${conf.modResults.language}`
+    );
+  }
+
+  return conf;
+});
+};
+
+module.exports = withDraftbitAutoLaunchUrl;

@@ -1,0 +1,73 @@
+
+ddiff --git a/src/watchers/FallbackWatcher.js b/src/watchers/FallbackWatcher.js
+index 75ac8a0806b9b134364b115c5cb45423b08b82f5..a43947fffd357609f9fd44155be2842f4371c5b8 100644
+--- a/src/watchers/FallbackWatcher.js
++++ b/src/watchers/FallbackWatcher.js
+@@ -85,19 +85,22 @@ module.exports = class FallbackWatcher extends AbstractWatcher {
+     if (this.watched[dir]) {
+       return false;
+     }
+-    const watcher = fs.watch(
+-      dir,
+-      {
+-        persistent: true,
+-      },
+-      (event, filename) => this._normalizeChange(dir, event, filename)
+-    );
+-    this.watched[dir] = watcher;
+-    watcher.on("error", this._checkedEmitError);
+-    if (this.root !== dir) {
+-      this._register(dir, "d");
++    if (!/(\/|\\)(\.git|node_modules|\.metro-cache|ios|android)(\/|\\|$)/.test(dir)) {
++      const watcher = fs.watch(
++        dir,
++        {
++          persistent: true,
++        },
++        (event, filename) => this._normalizeChange(dir, event, filename)
++      );
++      this.watched[dir] = watcher;
++      watcher.on("error", this._checkedEmitError);
++      if (this.root !== dir) {
++        this._register(dir, "d");
++      }
++      return true;
+     }
+-    return true;
++    return false;
+   };
+   async _stopWatching(dir) {
+     if (this.watched[dir]) {
+diff --git a/src/watchers/FallbackWatcher.js.flow b/src/watchers/FallbackWatcher.js.flow
+index 194a708f5690bfa3092d95e9bfc824e97c7962d9..2a2801aee717ac62b587cfb37b56302b1c1df0ba 100644
+--- a/src/watchers/FallbackWatcher.js.flow
++++ b/src/watchers/FallbackWatcher.js.flow
+@@ -160,17 +160,20 @@ module.exports = class FallbackWatcher extends AbstractWatcher {
+     if (this.watched[dir]) {
+       return false;
+     }
+-    const watcher = fs.watch(dir, {persistent: true}, (event, filename) =>
+-      this._normalizeChange(dir, event, filename),
+-    );
+-    this.watched[dir] = watcher;
++    if (!/(\/|\\)(\.git|node_modules|\.metro-cache|ios|android)(\/|\\|$)/.test(dir)) {
++      const watcher = fs.watch(dir, {persistent: true}, (event, filename) =>
++        this._normalizeChange(dir, event, filename),
++      );
++      this.watched[dir] = watcher;
+
+-    watcher.on('error', this._checkedEmitError);
++      watcher.on('error', this._checkedEmitError);
+
+-    if (this.root !== dir) {
+-      this._register(dir, 'd');
++      if (this.root !== dir) {
++        this._register(dir, 'd');
++      }
++      return true;
+     }
+-    return true;
++    return false;
+   };
+
+   /**
