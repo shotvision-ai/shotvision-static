@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "775772604906",
+    "project_id": "shotvision-c677b",
+    "storage_bucket": "shotvision-c677b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:775772604906:android:5aecc21ed278372bc38a93",
+        "android_client_info": {
+          "package_name": "com.shotvision.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "775772604906-1lbqbhs0s02sroeog815prnb6cg2123d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.shotvision.app",
+            "certificate_hash": "62d6a08ec9e5e663dd7eeec41053c113415c0782"
+          }
+        },
+        {
+          "client_id": "775772604906-oarfgmtjjs18vfheu6ls8giupq8egp0g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.shotvision.app",
+            "certificate_hash": "807375a82d126e7639602bf8f191afe848e6ec78"
+          }
+        },
+        {
+          "client_id": "775772604906-6fujbrs2qqnd3lhn5strthbbfu8943ch.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD5JN6UXvTpfnkv-2qy_EjsNexyKXX8qKc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "775772604906-6fujbrs2qqnd3lhn5strthbbfu8943ch.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
