@@ -3,6 +3,12 @@ import { Match } from "../../../types/match";
 import { toApiMatchWritePayload } from "./matchPayload";
 import { normalizeMatch, normalizeMatchList } from "./matchMapper";
 import { normalizePaginatedResponse, type PaginatedResponse } from "./pagination";
+import type {
+  FinishMatchResponse,
+  LikeMatchResponse,
+  MatchShareResponse,
+  MatchStatus,
+} from "./contracts";
 
 export type { PaginatedResponse };
 
@@ -17,33 +23,39 @@ export interface CreateMatchInput {
   status: "live" | "scheduled" | "completed";
   sets: { playerAScore: number; playerBScore: number }[];
   notes?: string;
-  scheduledDate?: string;
 }
 
 export interface UpdateMatchInput extends Partial<CreateMatchInput> {}
 
+function toApiStatusFilter(status: MatchStatusFilter): MatchStatus | undefined {
+  if (status === "all") return undefined;
+  if (status === "scheduled") return "SCHEDULED";
+  if (status === "completed") return "FINISHED";
+  return "LIVE";
+}
+
+function filterMatchesByStatus(matches: Match[], status: MatchStatusFilter): Match[] {
+  if (status === "all") return matches;
+  return matches.filter((m) => m.status === status);
+}
+
 /**
- * matchService handles match-related API calls.
+ * matchService — match CRUD, explore feed, likes, finish, and share per API_CONTRACTS.md.
  */
 export const matchService = {
-  /**
-   * Fetches the current user's matches with pagination and filters.
-   */
   async getMyMatches(
     page: number = 1,
     limit: number = 10,
     status: MatchStatusFilter = "all"
   ): Promise<PaginatedResponse<Match>> {
-    // Spring Pageable: `page` is 0-based; `size` is page size (not `limit`).
-    // Internal `page` is 1-based (first page = 1) for useMatches/loadMore.
     const params: Record<string, string> = {
       page: String(Math.max(0, page - 1)),
       size: String(limit),
-      limit: String(limit),
     };
 
-    if (status !== "all") {
-      params.status = status;
+    const apiStatus = toApiStatusFilter(status);
+    if (apiStatus) {
+      params.status = apiStatus;
     }
 
     const raw = await apiClient.get<unknown>("/api/matches/my", { params });
@@ -52,7 +64,11 @@ export const matchService = {
   },
 
   /**
-   * Fetches public matches for exploration.
+   * Explore feed — contract supports only `page` and `size` (no server-side status filter).
+   * Status filter is applied client-side after mapping (see docs/EXPLORE_FILTERING.md).
+   *
+   * Limitations: `hasNext` / `totalElements` refer to the unfiltered feed; filtered tabs may
+   * return fewer than `size` items per request. UI should allow load-more when empty + hasNext.
    */
   async getExploreMatches(
     page: number = 1,
@@ -62,60 +78,46 @@ export const matchService = {
     const params: Record<string, string> = {
       page: String(Math.max(0, page - 1)),
       size: String(limit),
-      limit: String(limit),
     };
-
-    if (status !== "all") {
-      params.status = status;
-    }
 
     const raw = await apiClient.get<unknown>("/api/matches/explore", { params });
     const paged = normalizePaginatedResponse<unknown>(raw, limit);
-    return { ...paged, items: normalizeMatchList(paged.items as unknown[]) };
+    const items = filterMatchesByStatus(normalizeMatchList(paged.items as unknown[]), status);
+    return { ...paged, items };
   },
 
-  /**
-   * Fetches details for a specific match.
-   */
   async getMatchDetails(id: string): Promise<Match> {
     const raw = await apiClient.get<unknown>(`/api/matches/${id}`);
     return normalizeMatch(raw);
   },
 
-  /**
-   * Creates a new match.
-   */
   async createMatch(data: CreateMatchInput): Promise<Match> {
     const raw = await apiClient.post<unknown>("/api/matches", toApiMatchWritePayload(data));
     return normalizeMatch(raw);
   },
 
-  /**
-   * Updates an existing match.
-   */
   async updateMatch(id: string, data: UpdateMatchInput): Promise<Match> {
     const raw = await apiClient.patch<unknown>(`/api/matches/${id}`, toApiMatchWritePayload(data));
     return normalizeMatch(raw);
   },
 
-  /**
-   * Deletes a match.
-   */
   async deleteMatch(id: string): Promise<void> {
-    return await apiClient.delete<void>(`/api/matches/${id}`);
+    await apiClient.delete<void>(`/api/matches/${id}`);
   },
 
-  /**
-   * Likes a match.
-   */
-  async likeMatch(id: string): Promise<void> {
-    return await apiClient.post<void>(`/api/matches/${id}/like`, {});
+  async finishMatch(id: string): Promise<FinishMatchResponse> {
+    return await apiClient.post<FinishMatchResponse>(`/api/matches/${id}/finish`, {});
   },
 
-  /**
-   * Unlikes a match.
-   */
-  async unlikeMatch(id: string): Promise<void> {
-    return await apiClient.delete<void>(`/api/matches/${id}/like`);
+  async getMatchShare(id: string): Promise<MatchShareResponse> {
+    return await apiClient.get<MatchShareResponse>(`/api/matches/${id}/share`);
+  },
+
+  async likeMatch(id: string): Promise<LikeMatchResponse> {
+    return await apiClient.post<LikeMatchResponse>(`/api/matches/${id}/like`, {});
+  },
+
+  async unlikeMatch(id: string): Promise<LikeMatchResponse> {
+    return await apiClient.delete<LikeMatchResponse>(`/api/matches/${id}/like`);
   },
 };

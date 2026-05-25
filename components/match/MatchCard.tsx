@@ -2,12 +2,13 @@ import { useState } from "react";
 import { View, TouchableOpacity, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
-import { Image } from "expo-image";
 import { StatusBadge } from "./StatusBadge";
+import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
 import { useAuth } from "../../src/context/AuthContext";
+import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
 import { matchService } from "../../src/services/api/matchService";
 
 interface MatchCardProps {
@@ -18,6 +19,7 @@ export function MatchCard({ match }: MatchCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const { user: currentUser } = useAuth();
+  const { preferredAvatarId } = useDefaultAvatar();
 
   // Like state
   const [isLiked, setIsLiked] = useState(match.isLiked || false);
@@ -36,11 +38,11 @@ export function MatchCard({ match }: MatchCardProps) {
     setIsLiking(true);
 
     try {
-      if (previousIsLiked) {
-        await matchService.unlikeMatch(match.id);
-      } else {
-        await matchService.likeMatch(match.id);
-      }
+      const result = previousIsLiked
+        ? await matchService.unlikeMatch(match.id)
+        : await matchService.likeMatch(match.id);
+      setIsLiked(result.likedByMe);
+      setLikesCount(result.likesCount);
     } catch (error) {
       console.error("Failed to like/unlike match:", error);
       // Rollback on failure
@@ -81,6 +83,11 @@ export function MatchCard({ match }: MatchCardProps) {
   // Player 2 (player B) can opt out if the match is live or scheduled
   const isPlayerB = currentUser && match.playerB === currentUser.name;
   const canOptOut = isPlayerB && (match.status === "live" || match.status === "scheduled");
+
+  const nameEq = (a: string, b: string) =>
+    Boolean(a.trim()) && Boolean(b.trim()) && a.trim().toLowerCase() === b.trim().toLowerCase();
+  const isPlayerASelf = Boolean(currentUser?.name && nameEq(match.playerA, currentUser.name));
+  const isPlayerBSelf = Boolean(currentUser?.name && nameEq(match.playerB, currentUser.name));
 
   const handleOptOut = () => {
     Alert.alert(
@@ -173,10 +180,15 @@ export function MatchCard({ match }: MatchCardProps) {
                 }}
                 className="bg-muted"
               >
-                <Image
-                  source={{ uri: match.playerAImage }}
-                  style={{ width: 70, height: 70 }}
-                  contentFit="cover"
+                <ProfileAvatar
+                  imageUrl={match.playerAImage}
+                  preferredAvatarId={isPlayerASelf ? preferredAvatarId : undefined}
+                  fallbackUserId={
+                    isPlayerASelf ? undefined : match.playerAUserId ?? `${match.id}:playerA`
+                  }
+                  fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
+                  size={70}
+                  variant="plain"
                 />
               </View>
             </View>
@@ -227,10 +239,15 @@ export function MatchCard({ match }: MatchCardProps) {
                 }}
                 className="bg-muted"
               >
-                <Image
-                  source={{ uri: match.playerBImage }}
-                  style={{ width: 70, height: 70 }}
-                  contentFit="cover"
+                <ProfileAvatar
+                  imageUrl={match.playerBImage}
+                  preferredAvatarId={isPlayerBSelf ? preferredAvatarId : undefined}
+                  fallbackUserId={
+                    isPlayerBSelf ? undefined : match.playerBUserId ?? `${match.id}:playerB`
+                  }
+                  fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
+                  size={70}
+                  variant="plain"
                 />
               </View>
             </View>

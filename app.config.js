@@ -81,7 +81,7 @@ plugins.push(
 module.exports = {
   name: "ShotVision",
   slug: "shotvision",
-  version: "1.0.0",
+  version: "4.0.0",
   scheme: "shotvision",
 
   /** Passed to the app at runtime (see src/config/googleOAuth.ts). Env overrides google-services defaults. */
@@ -94,7 +94,7 @@ module.exports = {
   web: {
     bundler: "metro",
     output: "single",
-    favicon: "./assets/images/favicon.png",
+    favicon: "./assets/images/Vector-icon.png",
   },
 
   plugins,
@@ -106,12 +106,12 @@ module.exports = {
 
   orientation: "portrait",
 
-  icon: "./assets/images/icon.png",
+  icon: "./assets/images/app-icon.png",
 
   userInterfaceStyle: "automatic",
 
   splash: {
-    image: "./assets/images/splash.png",
+    image: "./assets/images/splash-icon.png",
     resizeMode: "contain",
     backgroundColor: "#ffffff",
   },
@@ -120,18 +120,17 @@ module.exports = {
 
   ios: {
     supportsTablet: true,
-    buildNumber: "1",
+    buildNumber: "4",
     bundleIdentifier: "com.shotvision.app",
   },
 
   android: {
     package: "com.shotvision.app",
     googleServicesFile: "./android/app/google-services.json",
-    versionCode: 1,
+    versionCode: 4,
 
     adaptiveIcon: {
-      foregroundImage: "./assets/images/adaptive-icon.png",
-      /** Matches sampled blue from `assets/images/brand-reference-source.png` */
+      foregroundImage: "./assets/images/app-icon.png",
       backgroundColor: "#2664eb",
     },
   },

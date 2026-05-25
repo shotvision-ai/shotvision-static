@@ -2,12 +2,14 @@ import { useState } from "react";
 import { View, TouchableOpacity, Modal, Alert, TextInput, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
-import { Image } from "expo-image";
 import { StatusBadge } from "./StatusBadge";
+import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
 import { matchService } from "../../src/services/api/matchService";
+import { useAuth } from "../../src/context/AuthContext";
+import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
 
 interface PublicMatchCardProps {
   match: Match;
@@ -25,6 +27,8 @@ const REPORT_REASONS = [
 export function PublicMatchCard({ match }: PublicMatchCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
+  const { user: currentUser } = useAuth();
+  const { preferredAvatarId } = useDefaultAvatar();
   const [showReportModal, setShowReportModal] = useState(false);
   const [showUndoModal, setShowUndoModal] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
@@ -48,11 +52,11 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
     setIsLiking(true);
 
     try {
-      if (previousIsLiked) {
-        await matchService.unlikeMatch(match.id);
-      } else {
-        await matchService.likeMatch(match.id);
-      }
+      const result = previousIsLiked
+        ? await matchService.unlikeMatch(match.id)
+        : await matchService.likeMatch(match.id);
+      setIsLiked(result.likedByMe);
+      setLikesCount(result.likesCount);
     } catch (error) {
       console.error("Failed to like/unlike match:", error);
       // Rollback on failure
@@ -98,6 +102,11 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
     }
     return null;
   };
+
+  const nameEq = (a: string, b: string) =>
+    Boolean(a.trim()) && Boolean(b.trim()) && a.trim().toLowerCase() === b.trim().toLowerCase();
+  const isPlayerASelf = Boolean(currentUser?.name && nameEq(match.playerA, currentUser.name));
+  const isPlayerBSelf = Boolean(currentUser?.name && nameEq(match.playerB, currentUser.name));
 
   const accentColor =
     match.status === "live" ? "#f59e0b" : match.status === "scheduled" ? "#2563eb" : "#22c55e";
@@ -174,10 +183,15 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 }}
                 className="bg-muted"
               >
-                <Image
-                  source={{ uri: match.playerAImage }}
-                  style={{ width: 74, height: 74 }}
-                  contentFit="cover"
+                <ProfileAvatar
+                  imageUrl={match.playerAImage}
+                  preferredAvatarId={isPlayerASelf ? preferredAvatarId : undefined}
+                  fallbackUserId={
+                    isPlayerASelf ? undefined : match.playerAUserId ?? `${match.id}:playerA`
+                  }
+                  fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
+                  size={74}
+                  variant="plain"
                 />
               </View>
             </View>
@@ -225,10 +239,15 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 }}
                 className="bg-muted"
               >
-                <Image
-                  source={{ uri: match.playerBImage }}
-                  style={{ width: 74, height: 74 }}
-                  contentFit="cover"
+                <ProfileAvatar
+                  imageUrl={match.playerBImage}
+                  preferredAvatarId={isPlayerBSelf ? preferredAvatarId : undefined}
+                  fallbackUserId={
+                    isPlayerBSelf ? undefined : match.playerBUserId ?? `${match.id}:playerB`
+                  }
+                  fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
+                  size={74}
+                  variant="plain"
                 />
               </View>
             </View>

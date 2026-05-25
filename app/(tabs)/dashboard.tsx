@@ -7,13 +7,16 @@ import { FloatingActionButton } from "~/components/ui/FloatingActionButton";
 import { SegmentedControl } from "~/components/ui/SegmentedControl";
 import { MatchStatus } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
+import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { useTheme } from "~/theming/ThemeProvider";
+import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
 import { useMatches } from "../../src/hooks/useMatches";
 import { MatchStatusFilter } from "../../src/services/api/matchService";
 
 export default function Dashboard() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const { preferredAvatarId } = useDefaultAvatar();
   const [quickFilter, setQuickFilter] = useState<MatchStatusFilter>("all");
 
   const { matches, isLoading, isRefreshing, error, hasMore, refresh, loadMore } = useMatches({
@@ -58,7 +61,7 @@ export default function Dashboard() {
 
     return (
       <View className="flex-1 items-center justify-center px-8 py-20">
-        <LucideIcon name="Trophy" size={64} color={theme.colors.mutedForeground} />
+        <ProfileAvatar preferredAvatarId={preferredAvatarId} size={88} />
         <Text className="text-h3 font-semibold text-foreground mt-6 mb-2 text-center">
           No matches yet
         </Text>

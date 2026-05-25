@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { View, ScrollView, TouchableOpacity, Platform, Alert, ActivityIndicator } from "react-native";
+import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
@@ -9,11 +10,24 @@ import { Button } from "~/components/ui/button";
 import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useAuth } from "../src/context/AuthContext";
+import { useDefaultAvatar } from "../src/context/DefaultAvatarContext";
 import { profileService } from "../src/services/api/profileService";
+import { PROFILE_IMAGE_UPLOAD_ENABLED } from "../src/config/featureFlags";
+import { devLog } from "../src/utils/devLog";
+import {
+  CLASSIC_AVATAR_MAX,
+  defaultAvatarAccent,
+  defaultAvatarBuiltInImage,
+  FEMALE_AVATAR_MAX,
+  FEMALE_AVATAR_MIN,
+  MALE_AVATAR_MAX,
+  MALE_AVATAR_MIN,
+} from "~/lib/defaultAvatars";
 
 export default function EditProfile() {
   const router = useRouter();
-  const { user, restoreSession } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const { preferredAvatarId, setPreferredAvatarId } = useDefaultAvatar();
   const androidTopOffset = Platform.OS === "android" ? 32 : 0;
 
   const [name, setName] = useState("");
@@ -43,29 +57,47 @@ export default function EditProfile() {
         location,
       });
       
-      // Refresh global auth state
-      await restoreSession();
+      await refreshUser();
       
       Alert.alert("Success", "Profile updated successfully!", [
         { text: "OK", onPress: () => router.back() }
       ]);
     } catch (error: any) {
-      console.error("Failed to update profile:", error);
+      devLog.error("[edit-profile] save failed:", error);
       Alert.alert("Error", error.message || "Failed to update profile. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleChangePhoto = () => {
-    Alert.alert(
-      "Change Photo",
-      "Image upload functionality will be fully integrated with a storage service in the next update.",
-      [{ text: "OK" }]
+  if (!user) return null;
+
+  const renderDefaultPickerTile = (id: number) => {
+    const src = defaultAvatarBuiltInImage(id);
+    if (src) {
+      return (
+        <Image
+          source={src}
+          style={{ width: 64, height: 64, borderRadius: 32 }}
+          contentFit="cover"
+        />
+      );
+    }
+    return (
+      <View
+        style={{
+          width: 64,
+          height: 64,
+          borderRadius: 32,
+          backgroundColor: defaultAvatarAccent(id),
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <LucideIcon name="User" size={28} color="#ffffff" />
+      </View>
     );
   };
-
-  if (!user) return null;
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
@@ -78,17 +110,101 @@ export default function EditProfile() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Photo Section */}
+        {/* Profile photo: display only. Upload UI disabled until storage is live. */}
         <View className="items-center mb-8">
-            <ProfileAvatar imageUrl={user.image || ""} size={120} withBorder={true} />
+          <ProfileAvatar
+            imageUrl={user.image}
+            preferredAvatarId={preferredAvatarId}
+            size={120}
+            withBorder={true}
+          />
+          {/* TODO: Re-enable after production storage integration (Cloudinary/S3). Set PROFILE_IMAGE_UPLOAD_ENABLED. */}
+          {!PROFILE_IMAGE_UPLOAD_ENABLED ? (
+            <Text className="text-caption text-muted-foreground mt-4 text-center px-4">
+              Custom photo upload is coming soon. Choose a default picture below.
+            </Text>
+          ) : null}
 
-          <TouchableOpacity
-            onPress={handleChangePhoto}
-            className="mt-4 flex-row items-center gap-2"
-          >
-            <LucideIcon name="Camera" size={18} color="#22c55e" />
-            <Text className="text-body font-medium text-primary">Change Photo</Text>
-          </TouchableOpacity>
+          <Text className="text-caption font-semibold text-muted-foreground mt-8 mb-3 self-start px-1">
+            DEFAULT PICTURE
+          </Text>
+          <Text className="text-caption text-muted-foreground mb-4 self-start px-1">
+            Used when you don&apos;t have a profile photo. Female (9–12) and male (13–16) use bundled
+            illustrations; classic (1–8) uses color placeholders.
+          </Text>
+          <Text className="text-caption font-semibold text-muted-foreground mb-3 self-start px-1">
+            Classic
+          </Text>
+          <View className="flex-row flex-wrap justify-center gap-3 w-full mb-2">
+            {Array.from({ length: CLASSIC_AVATAR_MAX }, (_, i) => i + 1).map((id) => {
+              const selected = preferredAvatarId === id;
+              return (
+                <TouchableOpacity
+                  key={id}
+                  onPress={() => void setPreferredAvatarId(id)}
+                  activeOpacity={0.85}
+                  style={{
+                    borderRadius: 999,
+                    padding: selected ? 3 : 0,
+                    borderWidth: selected ? 3 : 0,
+                    borderColor: "#2563eb",
+                  }}
+                >
+                  {renderDefaultPickerTile(id)}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text className="text-caption font-semibold text-muted-foreground mb-3 mt-4 self-start px-1">
+            Female
+          </Text>
+          <View className="flex-row flex-wrap justify-center gap-3 w-full">
+            {Array.from({ length: FEMALE_AVATAR_MAX - FEMALE_AVATAR_MIN + 1 }, (_, i) => i + FEMALE_AVATAR_MIN).map(
+              (id) => {
+                const selected = preferredAvatarId === id;
+                return (
+                  <TouchableOpacity
+                    key={id}
+                    onPress={() => void setPreferredAvatarId(id)}
+                    activeOpacity={0.85}
+                    style={{
+                      borderRadius: 999,
+                      padding: selected ? 3 : 0,
+                      borderWidth: selected ? 3 : 0,
+                      borderColor: "#2563eb",
+                    }}
+                  >
+                    {renderDefaultPickerTile(id)}
+                  </TouchableOpacity>
+                );
+              }
+            )}
+          </View>
+          <Text className="text-caption font-semibold text-muted-foreground mb-3 mt-4 self-start px-1">
+            Male
+          </Text>
+          <View className="flex-row flex-wrap justify-center gap-3 w-full">
+            {Array.from({ length: MALE_AVATAR_MAX - MALE_AVATAR_MIN + 1 }, (_, i) => i + MALE_AVATAR_MIN).map(
+              (id) => {
+                const selected = preferredAvatarId === id;
+                return (
+                  <TouchableOpacity
+                    key={id}
+                    onPress={() => void setPreferredAvatarId(id)}
+                    activeOpacity={0.85}
+                    style={{
+                      borderRadius: 999,
+                      padding: selected ? 3 : 0,
+                      borderWidth: selected ? 3 : 0,
+                      borderColor: "#2563eb",
+                    }}
+                  >
+                    {renderDefaultPickerTile(id)}
+                  </TouchableOpacity>
+                );
+              }
+            )}
+          </View>
         </View>
 
         {/* Form Fields */}

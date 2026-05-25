@@ -34,8 +34,20 @@ export const handleApiError = (error: unknown, correlationId?: string): never =>
 
   const message = error instanceof Error ? error.message : String(error);
 
-  if (typeof error === "object" && error !== null && (error as Error).name === "AbortError") {
-    throw new AppError("This is taking too long. Please try again.", 408, "TIMEOUT", undefined, correlationId);
+  const isAbort =
+    (typeof error === "object" &&
+      error !== null &&
+      ((error as Error).name === "AbortError" || (error as Error).name === "TimeoutError")) ||
+    /aborted|timeout/i.test(message);
+
+  if (isAbort) {
+    throw new AppError(
+      "The server is taking too long to respond. Check your connection and try again.",
+      408,
+      "TIMEOUT",
+      undefined,
+      correlationId
+    );
   }
 
   // fetch() on React Native often throws TypeError: Network request failed

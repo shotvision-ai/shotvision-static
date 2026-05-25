@@ -28,3 +28,6 @@ android
 .metro-cache/
 .env
 .prettier-cache
+
+# Android release signing (never commit real passwords)
+android/key.properties

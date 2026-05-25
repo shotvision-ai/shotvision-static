@@ -4,7 +4,7 @@ import type { LucideProps } from "lucide-react-native";
 import { cssInterop } from "nativewind";
 import { memo, useMemo } from "react";
 
-type IconName = keyof typeof icons;
+export type IconName = keyof typeof icons;
 type IconProps = LucideProps & { name: IconName; className?: string };
 
 const Icon: React.FC<IconProps> = memo(({ name, className, ...rest }) => {

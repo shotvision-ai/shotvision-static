@@ -14,6 +14,8 @@ import { CalendarPicker } from "~/components/ui/CalendarPicker";
 import { matchService, UpdateMatchInput } from "../../src/services/api/matchService";
 import { formatMatchSaveError } from "../../src/services/api/matchFormErrors";
 import { AppError } from "../../src/services/api/apiErrors";
+import { getUserFriendlyErrorMessage } from "../../src/services/api/userFriendlyErrors";
+import { devLog } from "../../src/utils/devLog";
 
 export default function EditMatch() {
   const router = useRouter();
@@ -37,11 +39,14 @@ export default function EditMatch() {
   const [notes, setNotes] = useState("");
   const [isPublic, setIsPublic] = useState(false);
 
-  // Fetch match details
+  // Fetch match details — cancelled flag avoids setState after unmount / id change.
   useEffect(() => {
+    let cancelled = false;
+
     const fetchMatch = async () => {
       try {
         const data = await matchService.getMatchDetails(id as string);
+        if (cancelled) return;
         setMatch(data);
         setPlayerA(data.playerA);
         setPlayerB(data.playerB);
@@ -51,15 +56,19 @@ export default function EditMatch() {
         setSets(data.sets.length > 0 ? data.sets : [{ playerAScore: 0, playerBScore: 0 }]);
         setNotes(data.notes || "");
         setIsPublic(data.isPublic);
-      } catch (err: any) {
-        console.error("Failed to fetch match:", err);
-        setError(err.message || "Failed to load match details");
+      } catch (err: unknown) {
+        if (cancelled) return;
+        devLog.error("[edit-match] fetch failed:", err);
+        setError(getUserFriendlyErrorMessage(err, "Failed to load match details"));
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    fetchMatch();
+    void fetchMatch();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const handleDatePickerOpen = () => {
@@ -151,22 +160,25 @@ export default function EditMatch() {
         matchDate: matchDate.toISOString(),
         location,
         isPublic,
-        status,
         sets,
         notes,
       };
 
-      if (status === "scheduled") {
-        input.scheduledDate = matchDate.toISOString();
+      if (status === "completed") {
+        // Save scores first, then use contract finish endpoint to determine winner.
+        await matchService.updateMatch(id as string, { ...input, status: "live" });
+        await matchService.finishMatch(id as string);
+      } else {
+        input.status = status;
+        await matchService.updateMatch(id as string, input);
       }
 
-      await matchService.updateMatch(id as string, input);
       router.replace("/(tabs)/dashboard");
     } catch (error: unknown) {
       if (__DEV__) {
         const summary =
           error instanceof AppError ? `${error.code} (${error.statusCode})` : String(error);
-        console.warn("[edit-match] save failed:", summary);
+        devLog.warn("[edit-match] save failed:", summary);
       }
       const { title, body } = formatMatchSaveError(error);
       Alert.alert(title, body);

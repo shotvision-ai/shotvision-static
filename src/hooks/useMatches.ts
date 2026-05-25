@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { matchService, MatchStatusFilter, PaginatedResponse } from "../services/api/matchService";
 import { Match } from "../../types/match";
-import { AppError } from "../services/api/apiErrors";
+import { getUserFriendlyErrorMessage } from "../services/api/userFriendlyErrors";
 import { logShotVisionUi } from "../services/api/apiDebug";
+import { devLog } from "../utils/devLog";
 
 interface UseMatchesOptions {
   status?: MatchStatusFilter;
@@ -20,8 +21,13 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
 
   const { status = "all", limit = 10, type = "my" } = options;
 
+  /** Monotonic id — stale responses are ignored (prevents wrong list after fast filter changes). */
+  const requestSeqRef = useRef(0);
+
   const fetchMatches = useCallback(
     async (pageNum: number, refresh: boolean = false) => {
+      const requestId = ++requestSeqRef.current;
+
       if (refresh) {
         setIsRefreshing(true);
       } else {
@@ -31,11 +37,15 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
 
       try {
         let response: PaginatedResponse<Match>;
-        
+
         if (type === "explore") {
           response = await matchService.getExploreMatches(pageNum, limit, status);
         } else {
           response = await matchService.getMyMatches(pageNum, limit, status);
+        }
+
+        if (requestId !== requestSeqRef.current) {
+          return;
         }
 
         if (refresh) {
@@ -55,18 +65,18 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
           `items=${response.items.length} total=${response.total} page=${response.page}/${response.totalPages} hasMore=${more}`
         );
       } catch (err: unknown) {
-        console.error(`Failed to fetch ${type} matches:`, err);
-        const msg =
-          err instanceof AppError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : "Failed to load matches";
+        if (requestId !== requestSeqRef.current) {
+          return;
+        }
+        devLog.error(`[useMatches:${type}]`, err);
+        const msg = getUserFriendlyErrorMessage(err, "Failed to load matches");
         setError(msg);
         logShotVisionUi(`useMatches(${type})`, `ERROR ${msg}`);
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (requestId === requestSeqRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [status, limit, type]
@@ -74,6 +84,9 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
 
   useEffect(() => {
     fetchMatches(1, true);
+    return () => {
+      requestSeqRef.current += 1;
+    };
   }, [fetchMatches]);
 
   const refresh = useCallback(() => {

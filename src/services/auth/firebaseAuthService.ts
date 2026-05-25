@@ -7,6 +7,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../../config/firebase";
 import { isFirebaseAuthLikeError, toFirebaseAuthAppError } from "./firebaseAuthErrors";
+import { devLog } from "../../utils/devLog";
 
 export interface FirebaseAuthResult {
   firebaseToken: string;
@@ -39,7 +40,7 @@ export const firebaseAuthService = {
 
       return data.sessionInfo;
     } catch (error) {
-      console.error("Firebase sendOtp error:", error);
+      devLog.error("[firebase] sendOtp failed:", error);
       throw error;
     }
   },
@@ -66,7 +67,7 @@ export const firebaseAuthService = {
 
       await sendSignInLinkToEmail(auth, email, actionCodeSettings);
     } catch (error) {
-      console.error("Firebase sendEmailLink error:", error);
+      devLog.error("[firebase] sendEmailLink failed:", error);
       throw error;
     }
   },
@@ -103,7 +104,7 @@ export const firebaseAuthService = {
         user: userCredential.user,
       };
     } catch (error) {
-      console.error("Firebase verifyOtp error:", error);
+      devLog.error("[firebase] verifyOtp failed:", error);
       throw error;
     }
   },
@@ -117,12 +118,10 @@ export const firebaseAuthService = {
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(auth, credential);
       const firebaseToken = await userCredential.user.getIdToken();
-      if (__DEV__) {
-        // Copy from Metro terminal after Google SSO — same JWT sent as `firebaseToken` to POST /api/auth/login
-        console.log(
-          "\n[FIREBASE JWT / ID TOKEN]\n" + firebaseToken + "\n[/FIREBASE JWT]\n"
-        );
-      }
+      // Dev-only: full JWT never reaches production logs (prevents token leakage in release builds).
+      devLog.info(
+        "\n[FIREBASE JWT / ID TOKEN]\n" + firebaseToken + "\n[/FIREBASE JWT]\n"
+      );
       return {
         firebaseToken,
         user: userCredential.user,
@@ -152,16 +151,16 @@ export const firebaseAuthService = {
 
         return await firebaseAuthService.signInWithGoogleIdToken(idToken);
       } else if (response?.type === "cancel") {
-        console.log("Google Login cancelled by user");
+        devLog.info("[firebase] Google login cancelled");
         return null;
       } else if (response?.type === "error") {
-        console.error("Google Login error:", response.error);
+        devLog.error("[firebase] Google login error:", response.error);
         throw new Error(response.error?.message || "Google Login failed");
       }
       
       return null;
     } catch (error) {
-      console.error("Error during Firebase Google Login:", error);
+      devLog.error("[firebase] Google login failed:", error);
       throw error;
     }
   },
@@ -184,7 +183,7 @@ export const firebaseAuthService = {
     try {
       await auth.signOut();
     } catch (error) {
-      console.error("Error during sign out:", error);
+      devLog.error("[firebase] signOut failed:", error);
       throw error;
     }
   }
