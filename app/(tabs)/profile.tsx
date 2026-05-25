@@ -13,15 +13,9 @@ import { Text } from "~/components/ui/text";
 import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useAuth } from "../../src/context/AuthContext";
-
+import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
+import { useUserStats } from "../../src/hooks/useUserStats";
 const BLUE = "#2563eb";
-
-/** Placeholder until stats are loaded from the API */
-const matches: number = 0;
-const wins: number = 0;
-const losses: number = 0;
-const winRate: number = 0;
-const currentStreak: number = 0;
 
 function ProgressBar({ value, max, color = BLUE }: { value: number; max: number; color?: string }) {
   const pct = Math.min(max > 0 ? (value / max) * 100 : 0, 100);
@@ -109,6 +103,14 @@ export default function Profile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, isLoading } = useAuth();
+  const { preferredAvatarId } = useDefaultAvatar();
+  const { stats, isLoading: statsLoading, error: statsError, refresh: refreshStats } = useUserStats(!!user);
+
+  const matches = stats?.totalMatches ?? 0;
+  const wins = stats?.wins ?? 0;
+  const losses = stats?.losses ?? 0;
+  const winRate = stats ? Math.round(stats.winRate * 100) : 0;
+  const currentStreak = stats?.streak ?? 0;
 
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
@@ -201,7 +203,12 @@ export default function Profile() {
       >
         {/* Profile Summary */}
         <View className="items-center mb-8">
-          <ProfileAvatar imageUrl={user.image || ""} size={100} withBorder={true} />
+          <ProfileAvatar
+            imageUrl={user.image}
+            preferredAvatarId={preferredAvatarId}
+            size={100}
+            withBorder={true}
+          />
           <View className="items-center mt-4 mb-2">
             <Text className="text-h3 font-bold text-foreground">{user.name}</Text>
             {user.location && (
@@ -307,6 +314,16 @@ export default function Profile() {
           }}
         >
           <Text className="text-caption font-semibold text-muted-foreground mb-4">MATCH STATS</Text>
+          {statsError ? (
+            <View className="mb-4">
+              <Text className="text-body text-muted-foreground mb-3">{statsError}</Text>
+              <TouchableOpacity onPress={() => void refreshStats()} className="self-start">
+                <Text style={{ fontSize: 14, fontWeight: "600", color: BLUE }}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : statsLoading ? (
+            <ActivityIndicator size="small" color={BLUE} className="mb-4" />
+          ) : null}
           <View className="flex-row justify-between">
             <View className="flex-1 items-center">
               <Text className="text-h2 font-bold text-foreground mb-1">{matches}</Text>
@@ -381,9 +398,30 @@ export default function Profile() {
           <Text className="text-caption font-semibold text-muted-foreground mb-3">
             MONTHLY PERFORMANCE
           </Text>
-          <Text className="text-body text-muted-foreground">
-            Charts will appear here once your match statistics are synced from the server.
-          </Text>
+          {statsLoading ? (
+            <ActivityIndicator size="small" color={BLUE} />
+          ) : stats?.monthlyPerformance?.length ? (
+            <View className="gap-3">
+              {stats.monthlyPerformance.slice(0, 6).map((point) => (
+                <View key={point.month}>
+                  <View className="flex-row items-center justify-between mb-1">
+                    <Text className="text-body font-medium text-foreground">{point.month}</Text>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: BLUE }}>
+                      {Math.round(point.winRate * 100)}%
+                    </Text>
+                  </View>
+                  <ProgressBar value={point.wins} max={Math.max(point.totalMatches, 1)} color={BLUE} />
+                  <Text className="text-caption text-muted-foreground mt-1">
+                    {point.wins}W · {point.losses}L · {point.totalMatches} matches
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text className="text-body text-muted-foreground">
+              Play and finish matches to see monthly trends here.
+            </Text>
+          )}
         </View>
 
         {/* Match Calendar */}

@@ -1,31 +1,29 @@
-export interface ApiResponse<T = any> {
-  responseInfo: Record<string, any>;
-  body: ApiResponseBody<T>;
-}
+/**
+ * HTTP transport types for apiClient (not request/response DTOs).
+ * DTOs and envelopes live in `./contracts/`.
+ */
 
-export interface ApiResponseBody<T = any> {
-  statusCode: number;
-  statusMessage: string;
-  data: T;
-  errors?: ApiErrorDetail[];
-  meta?: Record<string, any>;
-}
+export type {
+  ApiResponse,
+  ApiResponseBody,
+  ApiResponseInfo,
+  ApiErrorDetail,
+  ApiResponseCode,
+  ApiHttpStatusCode,
+  ApiSuccessEnvelope,
+  ApiFailureEnvelope,
+  ApiEmptyData,
+  PaginatedResponseDto,
+} from "./contracts/common.types";
 
-export interface ApiErrorDetail {
-  code: string;
-  message: string;
-  field?: string;
-}
-
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-}
+export type { AuthTokens } from "./contracts/auth.types";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface RequestOptions {
   headers?: Record<string, string>;
-  body?: any;
+  body?: unknown;
   params?: Record<string, string>;
+  /** Skip Authorization header (login / refresh / public routes). */
+  skipAuth?: boolean;
 }

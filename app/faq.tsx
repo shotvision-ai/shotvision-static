@@ -40,7 +40,7 @@ export default function FAQ() {
     {
       question: "How do I change my profile picture?",
       answer:
-        "Go to the Profile tab, tap 'Edit Profile', then tap 'Change Photo'. You can select a new photo from your device's gallery.",
+        "Go to Profile → Edit Profile and pick a default picture. Custom photo upload will be available in a future update.",
     },
   ];
 

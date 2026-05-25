@@ -6,6 +6,7 @@ import { Text } from "~/components/ui/text";
 import { Button } from "~/components/ui/button";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useAuth } from "../src/context/AuthContext";
+import { devLog } from "../src/utils/devLog";
 
 const BLUE = "#2563eb";
 const RESEND_SECONDS = 60;
@@ -14,8 +15,6 @@ export default function OTP() {
   const router = useRouter();
   const params = useLocalSearchParams<{ identifier: string; method: string }>();
   const { identifier, method } = params;
-  
-  console.log("OTP Screen params:", params);
 
   const { loginWithOtp, sendOtp, isLoading: isAuthLoading } = useAuth();
   const androidTopOffset = Platform.OS === "android" ? 32 : 0;
@@ -87,7 +86,7 @@ export default function OTP() {
       await loginWithOtp(identifier || "", otpValue);
       // Navigation is handled globally in _layout.tsx based on isAuthenticated
     } catch (err: any) {
-      console.error("OTP verification error:", err);
+      devLog.error("[otp] verify failed:", err);
       setError(err.message || "Invalid or expired verification code");
     } finally {
       setIsVerifying(false);
@@ -107,7 +106,7 @@ export default function OTP() {
       setCanResend(false);
       inputRefs.current[0]?.focus();
     } catch (err: any) {
-      console.error("Resend OTP error:", err);
+      devLog.error("[otp] resend failed:", err);
       Alert.alert("Error", err.message || "Failed to resend verification code.");
     } finally {
       setIsResending(false);

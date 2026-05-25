@@ -2,6 +2,7 @@ import { Tabs, useRouter } from "expo-router";
 import { TouchableOpacity, View, Platform, StatusBar as RNStatusBar } from "react-native";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
+import { NOTIFICATIONS_API_ENABLED } from "../../src/config/featureFlags";
 
 export default function TabsLayout() {
   const { theme } = useTheme();
@@ -79,7 +80,8 @@ export default function TabsLayout() {
           title: "Explore Matches",
           tabBarLabel: "Explore",
           tabBarIcon: ({ color }) => <LucideIcon name="Users" size={24} color={color} />,
-          headerRight: () => <NotificationButton />,
+          headerRight: () =>
+            NOTIFICATIONS_API_ENABLED ? <NotificationButton /> : undefined,
         }}
       />
       <Tabs.Screen
@@ -88,7 +90,8 @@ export default function TabsLayout() {
           title: "My Matches",
           tabBarLabel: "My Matches",
           tabBarIcon: ({ color }) => <LucideIcon name="Trophy" size={24} color={color} />,
-          headerRight: () => <NotificationButton />,
+          headerRight: () =>
+            NOTIFICATIONS_API_ENABLED ? <NotificationButton /> : undefined,
         }}
       />
       <Tabs.Screen
@@ -97,7 +100,8 @@ export default function TabsLayout() {
           title: "Profile",
           tabBarLabel: "Profile",
           tabBarIcon: ({ color }) => <LucideIcon name="User" size={24} color={color} />,
-          headerRight: () => <NotificationButton />,
+          headerRight: () =>
+            NOTIFICATIONS_API_ENABLED ? <NotificationButton /> : undefined,
         }}
       />
     </Tabs>

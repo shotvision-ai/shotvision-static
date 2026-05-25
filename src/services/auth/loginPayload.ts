@@ -4,6 +4,7 @@ import { AppError } from "../api/apiErrors";
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
+  expiresIn?: number;
   user: {
     id: string;
     email: string;
@@ -33,21 +34,27 @@ export function normalizeLoginPayload(raw: unknown): LoginResponse {
   if (userRaw && typeof userRaw === "object") {
     const u = userRaw as Record<string, unknown>;
     user = {
-      id: String(u.id ?? ""),
+      id: String(u.userId ?? u.id ?? ""),
       email: String(u.email ?? ""),
       name: String(u.name ?? u.displayName ?? ""),
       image:
-        typeof u.image === "string"
-          ? u.image
-          : typeof u.photoURL === "string"
-            ? u.photoURL
-            : typeof u.picture === "string"
-              ? u.picture
-              : undefined,
+        typeof u.profileImage === "string"
+          ? u.profileImage
+          : typeof u.image === "string"
+            ? u.image
+            : typeof u.photoURL === "string"
+              ? u.photoURL
+              : typeof u.picture === "string"
+                ? u.picture
+                : undefined,
     };
   } else {
     user = { id: "", email: "", name: "" };
   }
 
-  return { accessToken, refreshToken, user };
+  const expiresInRaw = r.expiresIn ?? r.expires_in;
+  const expiresIn =
+    typeof expiresInRaw === "number" && !Number.isNaN(expiresInRaw) ? expiresInRaw : undefined;
+
+  return { accessToken, refreshToken, expiresIn, user };
 }

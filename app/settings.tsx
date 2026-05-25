@@ -7,16 +7,19 @@ import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
 import { useColorScheme } from "~/lib/useColorScheme";
 import { useAuth } from "../src/context/AuthContext";
-import { profileService, UserSettings } from "../src/services/api/profileService";
+import { profileService } from "../src/services/api/profileService";
+import { authService } from "../src/services/auth/authService";
+import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErrors";
 import * as WebBrowser from "expo-web-browser";
 import { PRIVACY_POLICY_URL } from "../src/constants/legalUrls";
+import { devLog } from "../src/utils/devLog";
 
 type ThemeMode = "light" | "dark" | "system";
 
 export default function Settings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, logout, restoreSession } = useAuth();
+  const { user, logout } = useAuth();
   const androidTopOffset = Platform.OS === "android" ? 32 : 0;
   const { theme, setTheme } = useTheme();
   const { setColorScheme } = useColorScheme();
@@ -27,19 +30,12 @@ export default function Settings() {
   const [selectedTheme, setSelectedTheme] = useState<ThemeMode>("system");
   const [isUpdating, setIsUpdating] = useState(false);
 
-  useEffect(() => {
-    if (user?.settings?.theme) {
-      setSelectedTheme(user.settings.theme as ThemeMode);
-    }
-  }, [user]);
-
   const handleThemeChange = async (mode: ThemeMode) => {
     if (mode === selectedTheme) return;
-    
+
     const previousTheme = selectedTheme;
     setSelectedTheme(mode);
 
-    // Apply theme locally first for instant feedback
     if (mode === "light") {
       setTheme("light");
       setColorScheme("light");
@@ -51,13 +47,12 @@ export default function Settings() {
     }
 
     try {
-      await profileService.updateSettings({ theme: mode });
-      await restoreSession();
+      const darkMode = mode === "dark" ? true : mode === "light" ? false : null;
+      await profileService.updateSettings({ darkMode });
     } catch (error) {
-      console.error("Failed to update theme setting:", error);
-      // Rollback on failure
+      devLog.error("[settings] theme update failed:", error);
       setSelectedTheme(previousTheme);
-      Alert.alert("Error", "Failed to save theme preference.");
+      Alert.alert("Error", getUserFriendlyErrorMessage(error, "Failed to save theme preference."));
     }
   };
 
@@ -117,15 +112,29 @@ export default function Settings() {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "This action is permanent. Are you sure you want to delete your account?",
+      "Your account will be scheduled for deletion. You can sign in again during the grace period if you change your mind.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => alert("Delete account functionality coming soon"),
+          onPress: async () => {
+            try {
+              setIsUpdating(true);
+              await profileService.deleteAccount();
+              await authService.logout();
+              router.replace("/login");
+            } catch (error) {
+              Alert.alert(
+                "Error",
+                getUserFriendlyErrorMessage(error, "Could not delete your account. Please try again.")
+              );
+            } finally {
+              setIsUpdating(false);
+            }
+          },
         },
-      ],
+      ]
     );
   };
 

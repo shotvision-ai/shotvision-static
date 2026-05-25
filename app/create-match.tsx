@@ -15,6 +15,7 @@ import { TimePicker } from "~/components/ui/TimePicker";
 import { matchService, CreateMatchInput } from "../src/services/api/matchService";
 import { formatMatchSaveError } from "../src/services/api/matchFormErrors";
 import { AppError } from "../src/services/api/apiErrors";
+import { devLog } from "../src/utils/devLog";
 
 const BLUE = "#2563eb";
 
@@ -88,28 +89,29 @@ export default function CreateMatch() {
 
     setIsSubmitting(true);
     try {
-      const input: CreateMatchInput = {
+      const input = {
         playerA,
         playerB,
         matchDate: matchDate.toISOString(),
         location,
         isPublic,
-        status,
         sets,
         notes,
       };
 
-      if (status === "scheduled") {
-        input.scheduledDate = matchDate.toISOString();
+      if (status === "completed") {
+        const created = await matchService.createMatch({ ...input, status: "live" });
+        await matchService.finishMatch(created.id);
+      } else {
+        await matchService.createMatch({ ...input, status });
       }
 
-      await matchService.createMatch(input);
       router.replace("/(tabs)/dashboard");
     } catch (error: unknown) {
       if (__DEV__) {
         const summary =
           error instanceof AppError ? `${error.code} (${error.statusCode})` : String(error);
-        console.warn("[create-match] save failed:", summary);
+        devLog.warn("[create-match] save failed:", summary);
       }
       const { title, body } = formatMatchSaveError(error);
       Alert.alert(title, body);

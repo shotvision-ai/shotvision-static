@@ -1,5 +1,11 @@
 import { apiClient } from "./apiClient";
 import { AppError } from "./apiErrors";
+import type {
+  UpdateUserProfileRequest,
+  UpdateUserSettingsRequest,
+  UserProfileResponse,
+  UserStatsResponse,
+} from "./contracts";
 
 export interface UserProfile {
   id: string;
@@ -8,87 +14,58 @@ export interface UserProfile {
   image?: string;
   bio?: string;
   location?: string;
-  settings?: UserSettings;
+  createdAt?: string;
 }
 
-export interface UserSettings {
-  notificationsEnabled: boolean;
-  marketingEmails: boolean;
-  theme: "light" | "dark" | "system";
-  isPublic: boolean;
-}
-
-export interface UpdateProfileInput {
-  name?: string;
-  bio?: string;
-  location?: string;
-  image?: string; // Base64 or URL for now
-}
-
-export interface UpdateSettingsInput extends Partial<UserSettings> {}
-
-/** Maps `/api/users/me` payload (camelCase or snake_case) to `UserProfile`. */
+/** Maps `/api/users/me` payload to `UserProfile`. */
 function normalizeUserProfile(raw: unknown): UserProfile {
   if (raw == null || typeof raw !== "object") {
     throw new AppError("Invalid profile response", 502, "INVALID_PROFILE");
   }
   const r = raw as Record<string, unknown>;
-  const settingsRaw = r.settings ?? r.userSettings;
-  let settings: UserSettings | undefined;
-  if (settingsRaw && typeof settingsRaw === "object") {
-    const s = settingsRaw as Record<string, unknown>;
-    settings = {
-      notificationsEnabled: Boolean(s.notificationsEnabled ?? s.notifications_enabled ?? true),
-      marketingEmails: Boolean(s.marketingEmails ?? s.marketing_emails ?? false),
-      theme: (s.theme === "light" || s.theme === "dark" || s.theme === "system" ? s.theme : "system") as UserSettings["theme"],
-      isPublic: Boolean(s.isPublic ?? s.is_public ?? true),
-    };
-  }
   return {
-    id: String(r.id ?? r.userId ?? ""),
-    name: String(r.name ?? r.fullName ?? r.display_name ?? ""),
+    id: String(r.userId ?? r.id ?? ""),
+    name: String(r.name ?? ""),
     email: String(r.email ?? ""),
     image:
-      typeof r.image === "string"
-        ? r.image
-        : typeof r.photoUrl === "string"
-          ? r.photoUrl
-          : typeof r.photo_url === "string"
-            ? r.photo_url
-            : typeof r.avatarUrl === "string"
-              ? r.avatarUrl
-              : undefined,
-    bio: typeof r.bio === "string" ? r.bio : typeof r.biography === "string" ? r.biography : undefined,
+      typeof r.profileImage === "string"
+        ? r.profileImage
+        : typeof r.image === "string"
+          ? r.image
+          : typeof r.photoUrl === "string"
+            ? r.photoUrl
+            : undefined,
+    bio: typeof r.bio === "string" ? r.bio : undefined,
     location: typeof r.location === "string" ? r.location : undefined,
-    settings,
+    createdAt: typeof r.createdAt === "string" ? r.createdAt : undefined,
   };
 }
 
 /**
- * profileService handles profile-related API calls.
+ * profileService — user profile, settings, stats, and account APIs per API_CONTRACTS.md.
  */
 export const profileService = {
-  /**
-   * Fetches the current authenticated user's profile.
-   * @returns Promise<UserProfile>
-   */
   async getCurrentProfile(): Promise<UserProfile> {
-    const raw = await apiClient.get<unknown>("/api/users/me");
+    const raw = await apiClient.get<UserProfileResponse>("/api/users/me");
     return normalizeUserProfile(raw);
   },
 
-  /**
-   * Updates the current user's profile.
-   */
-  async updateProfile(data: UpdateProfileInput): Promise<UserProfile> {
-    const raw = await apiClient.patch<unknown>("/api/users/me", data);
+  async updateProfile(data: UpdateUserProfileRequest): Promise<UserProfile> {
+    const raw = await apiClient.patch<UserProfileResponse>("/api/users/me", data);
     return normalizeUserProfile(raw);
   },
 
-  /**
-   * Updates the current user's settings.
-   */
-  async updateSettings(data: UpdateSettingsInput): Promise<UserSettings> {
-    return await apiClient.patch<UserSettings>("/api/users/me/settings", data);
+  /** PATCH `/api/users/me/settings` — `body.data` is null on success. */
+  async updateSettings(data: UpdateUserSettingsRequest): Promise<void> {
+    await apiClient.patch<null>("/api/users/me/settings", data);
+  },
+
+  async getMyStats(): Promise<UserStatsResponse> {
+    return await apiClient.get<UserStatsResponse>("/api/users/me/stats");
+  },
+
+  /** Soft-delete account (grace period on server). */
+  async deleteAccount(): Promise<void> {
+    await apiClient.delete<null>("/api/users/me");
   },
 };

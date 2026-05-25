@@ -6,13 +6,16 @@ import { PublicMatchCard } from "~/components/match/PublicMatchCard";
 import { SegmentedControl } from "~/components/ui/SegmentedControl";
 import { MatchStatus } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
+import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { useTheme } from "~/theming/ThemeProvider";
+import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
 import { useMatches } from "../../src/hooks/useMatches";
 import { MatchStatusFilter } from "../../src/services/api/matchService";
 
 export default function Explore() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const { preferredAvatarId } = useDefaultAvatar();
   const [quickFilter, setQuickFilter] = useState<MatchStatusFilter>("all");
 
   const { matches, isLoading, isRefreshing, error, hasMore, refresh, loadMore } = useMatches({
@@ -56,20 +59,30 @@ export default function Explore() {
       );
     }
 
+    const filteredEmptyWithMore =
+      quickFilter !== "all" && hasMore && !isLoading && !isRefreshing;
+
     return (
       <View className="flex-1 items-center justify-center px-8 py-20">
-        <LucideIcon name="Trophy" size={64} color={theme.colors.mutedForeground} />
+        <ProfileAvatar preferredAvatarId={preferredAvatarId} size={88} />
         <Text
           className="text-foreground mt-6 mb-2 text-center"
           style={{ fontSize: 20, fontWeight: "600" }}
         >
-          No public matches yet
+          {quickFilter === "all" ? "No public matches yet" : `No ${quickFilter} matches on this page`}
         </Text>
-        <Text className="text-center" style={{ fontSize: 15, color: "#6B7280" }}>
+        <Text className="text-center px-4" style={{ fontSize: 15, color: "#6B7280" }}>
           {quickFilter === "all"
             ? "Be the first to share a match"
-            : `No ${quickFilter} matches found`}
+            : filteredEmptyWithMore
+              ? "More public matches may be on the next pages. Load more or try All."
+              : `No ${quickFilter} matches found in the explore feed.`}
         </Text>
+        {filteredEmptyWithMore ? (
+          <TouchableOpacity onPress={loadMore} className="bg-primary px-6 py-3 rounded-xl mt-6">
+            <Text className="text-primary-foreground font-semibold">Load more</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   };

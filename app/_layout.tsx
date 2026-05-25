@@ -28,6 +28,7 @@ import { WebPortalContext } from "~/components/WebPortalContext";
 import * as SplashScreen from "expo-splash-screen";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { DefaultAvatarProvider } from "../src/context/DefaultAvatarContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -42,7 +43,7 @@ function RootContent() {
   const { isDarkColorScheme } = useColorScheme();
   const { theme, setTheme } = useTheme();
   const [isColorSchemeLoaded, setIsColorSchemeLoaded] = React.useState(false);
-  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, isHydrated } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -56,7 +57,7 @@ function RootContent() {
 
   // Global authentication redirect logic (defer until navigator is ready to avoid REPLACE errors)
   React.useEffect(() => {
-    if (isAuthLoading || !isColorSchemeLoaded || isLoadingFonts) return;
+    if (!isHydrated || isAuthLoading || !isColorSchemeLoaded || isLoadingFonts) return;
 
     const task = InteractionManager.runAfterInteractions(() => {
       const inAuthGroup =
@@ -74,7 +75,7 @@ function RootContent() {
         (task as { cancel: () => void }).cancel();
       }
     };
-  }, [isAuthenticated, isAuthLoading, segments, isColorSchemeLoaded, isLoadingFonts, router]);
+  }, [isAuthenticated, isAuthLoading, isHydrated, segments, isColorSchemeLoaded, isLoadingFonts, router]);
 
   const navigationTheme: NavigationTheme = React.useMemo(() => {
     const navigationThemeBase = isDarkColorScheme ? NavigationDarkTheme : NavigationDefaultTheme;
@@ -122,7 +123,7 @@ function RootContent() {
     }
   }, [isLoadingFonts]);
 
-  if (!isColorSchemeLoaded || isLoadingFonts) {
+  if (!isColorSchemeLoaded || isLoadingFonts || !isHydrated) {
     return null;
   }
 
@@ -332,12 +333,14 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <ThemeProvider
-        initialThemeName={isDarkColorScheme ? "dark" : "light"}
-        themes={[lightTheme, darkTheme]}
-      >
-        <RootContent />
-      </ThemeProvider>
+      <DefaultAvatarProvider>
+        <ThemeProvider
+          initialThemeName={isDarkColorScheme ? "dark" : "light"}
+          themes={[lightTheme, darkTheme]}
+        >
+          <RootContent />
+        </ThemeProvider>
+      </DefaultAvatarProvider>
     </AuthProvider>
   );
 }

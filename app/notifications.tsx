@@ -15,10 +15,35 @@ import LucideIcon from "~/lib/icons/LucideIcon";
 import type { InAppNotification } from "~/types/notification";
 import { notificationService } from "../src/services/api/notificationService";
 import { AppError } from "../src/services/api/apiErrors";
+import { NOTIFICATIONS_API_ENABLED } from "../src/config/featureFlags";
 
 const BLUE = "#2563eb";
 
-export default function Notifications() {
+/** No API calls — `/api/notifications` is not in API_CONTRACTS.md yet. */
+function NotificationsUnavailable() {
+  const insets = useSafeAreaInsets();
+  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
+
+  return (
+    <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
+      <View
+        className="flex-1 items-center justify-center px-8"
+        style={{ paddingTop: 8 + androidTopOffset, paddingBottom: insets.bottom + 24 }}
+      >
+        <LucideIcon name="Bell" size={64} color="#9ca3af" />
+        <Text className="text-h4 font-semibold text-foreground mt-6 mb-2 text-center">
+          Notifications coming soon
+        </Text>
+        <Text className="text-body text-muted-foreground text-center">
+          Alerts aren&apos;t available yet. We&apos;ll turn this on when the notification service
+          is ready.
+        </Text>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function NotificationsLive() {
   const insets = useSafeAreaInsets();
   const androidTopOffset = Platform.OS === "android" ? 32 : 0;
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
@@ -454,4 +479,11 @@ export default function Notifications() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+export default function Notifications() {
+  if (!NOTIFICATIONS_API_ENABLED) {
+    return <NotificationsUnavailable />;
+  }
+  return <NotificationsLive />;
 }

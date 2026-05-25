@@ -13,6 +13,7 @@ import {
   configureGoogleSignIn,
   signInWithGoogle,
 } from "../src/services/google/signInWithGoogle";
+import { devLog } from "../src/utils/devLog";
 
 const BLUE = "#2563eb";
 
@@ -105,7 +106,7 @@ function LoginBody({
     } catch (e: unknown) {
       const err = e as { code?: string };
       if (err?.code === "ERR_REQUEST_CANCELED") return;
-      console.error("Apple Sign-In error:", e);
+      devLog.error("[login] Apple sign-in failed:", e);
       Alert.alert("Error", "Failed to sign in with Apple.");
     } finally {
       setIsLoggingInApple(false);
@@ -227,7 +228,7 @@ function LoginWithGoogleAuth() {
       router.replace("/(tabs)/dashboard");
     } catch (err: unknown) {
       const { title, message } = formatLoginFailure(err);
-      console.error("Google login error:", err);
+      devLog.error("[login] Google sign-in failed:", err);
       Alert.alert(title, message);
     } finally {
       setIsLoggingInGoogle(false);

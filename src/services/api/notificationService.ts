@@ -63,7 +63,9 @@ export function mapApiNotificationToInApp(raw: ApiNotificationDto): InAppNotific
 }
 
 /**
- * Notification API. Paths align with the Shot Vision backend; adjust if your controller mapping differs.
+ * Notification API — **not defined in API_CONTRACTS.md** (2026-05-24).
+ * These paths are kept for forward compatibility; expect 404 until the backend ships them.
+ * See API_INTEGRATION_REPORT.md § "Unimplemented / undocumented backend APIs".
  */
 export const notificationService = {
   async list(params?: { limit?: number }): Promise<InAppNotification[]> {

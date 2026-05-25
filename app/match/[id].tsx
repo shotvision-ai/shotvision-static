@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { View, ScrollView, TouchableOpacity, Alert, Platform, StatusBar as RNStatusBar, ActivityIndicator, RefreshControl } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
@@ -9,12 +9,17 @@ import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
 import { matchService } from "../../src/services/api/matchService";
+import { shareMatchById } from "../../src/utils/shareMatch";
 import { useAuth } from "../../src/context/AuthContext";
+import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
+import { getUserFriendlyErrorMessage } from "../../src/services/api/userFriendlyErrors";
+import { devLog } from "../../src/utils/devLog";
 
 export default function MatchDetail() {
   const { id } = useLocalSearchParams();
   const { theme } = useTheme();
   const { user: currentUser } = useAuth();
+  const { preferredAvatarId } = useDefaultAvatar();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const androidTopOffset = Platform.OS === "android" ? 32 : 0;
@@ -29,7 +34,12 @@ export default function MatchDetail() {
   const [likesCount, setLikesCount] = useState(0);
   const [isLiking, setIsLiking] = useState(false);
 
+  /** Ignores stale responses after fast navigation or unmount (prevents setState on unmounted screen). */
+  const fetchSeqRef = useRef(0);
+
   const fetchMatchDetails = useCallback(async (refresh: boolean = false) => {
+    const requestId = ++fetchSeqRef.current;
+
     if (refresh) {
       setIsRefreshing(true);
     } else {
@@ -39,20 +49,27 @@ export default function MatchDetail() {
 
     try {
       const data = await matchService.getMatchDetails(id as string);
+      if (requestId !== fetchSeqRef.current) return;
       setMatch(data);
       setIsLiked(data.isLiked || false);
       setLikesCount(data.likesCount || 0);
-    } catch (err: any) {
-      console.error("Failed to fetch match details:", err);
-      setError(err.message || "Failed to load match details");
+    } catch (err: unknown) {
+      if (requestId !== fetchSeqRef.current) return;
+      devLog.error("[match-detail] fetch failed:", err);
+      setError(getUserFriendlyErrorMessage(err, "Failed to load match details"));
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (requestId === fetchSeqRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [id]);
 
   useEffect(() => {
-    fetchMatchDetails();
+    void fetchMatchDetails();
+    return () => {
+      fetchSeqRef.current += 1;
+    };
   }, [fetchMatchDetails]);
 
   const onRefresh = () => {
@@ -71,13 +88,13 @@ export default function MatchDetail() {
     setIsLiking(true);
 
     try {
-      if (previousIsLiked) {
-        await matchService.unlikeMatch(match.id);
-      } else {
-        await matchService.likeMatch(match.id);
-      }
+      const result = previousIsLiked
+        ? await matchService.unlikeMatch(match.id)
+        : await matchService.likeMatch(match.id);
+      setIsLiked(result.likedByMe);
+      setLikesCount(result.likesCount);
     } catch (error) {
-      console.error("Failed to like/unlike match:", error);
+      devLog.error("[match-detail] like failed:", error);
       // Rollback on failure
       setIsLiked(previousIsLiked);
       setLikesCount(previousLikesCount);
@@ -117,6 +134,15 @@ export default function MatchDetail() {
     router.push(`/edit-match/${id}`);
   };
 
+  const handleShare = async () => {
+    if (!match) return;
+    try {
+      await shareMatchById(match.id);
+    } catch {
+      // shareMatchById shows Alert on failure
+    }
+  };
+
   const handleDelete = () => {
     Alert.alert(
       "Delete Match",
@@ -131,7 +157,7 @@ export default function MatchDetail() {
               await matchService.deleteMatch(id as string);
               router.replace("/(tabs)/dashboard");
             } catch (err: any) {
-              console.error("Failed to delete match:", err);
+              devLog.error("[match-detail] delete failed:", err);
               Alert.alert("Error", err.message || "Failed to delete match. Please try again.");
             }
           },
@@ -183,14 +209,19 @@ export default function MatchDetail() {
     });
   };
 
+  const nameEq = (a: string, b: string) =>
+    Boolean(a.trim()) && Boolean(b.trim()) && a.trim().toLowerCase() === b.trim().toLowerCase();
+  const isPlayerASelf = Boolean(currentUser?.name && nameEq(match.playerA, currentUser.name));
+  const isPlayerBSelf = Boolean(currentUser?.name && nameEq(match.playerB, currentUser.name));
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={["bottom", "left", "right"]}>
       <Stack.Screen
         options={{
-          headerRight: () =>
-            isEditable() ? (
+          headerRight: () => (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginRight: 16 }}>
               <TouchableOpacity
-                onPress={handleEdit}
+                onPress={() => void handleShare()}
                 style={{
                   width: 38,
                   height: 38,
@@ -200,12 +231,33 @@ export default function MatchDetail() {
                   borderColor: "rgba(37,99,235,0.25)",
                   alignItems: "center",
                   justifyContent: "center",
-                  marginRight: 16,
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Share match"
               >
-                <LucideIcon name="SquarePen" size={20} color="#2563eb" />
+                <LucideIcon name="Share2" size={20} color="#2563eb" />
               </TouchableOpacity>
-            ) : null,
+              {isEditable() ? (
+                <TouchableOpacity
+                  onPress={handleEdit}
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 10,
+                    backgroundColor: "rgba(37,99,235,0.1)",
+                    borderWidth: 1.5,
+                    borderColor: "rgba(37,99,235,0.25)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit match"
+                >
+                  <LucideIcon name="SquarePen" size={20} color="#2563eb" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ),
         }}
       />
       <ScrollView
@@ -237,7 +289,21 @@ export default function MatchDetail() {
         >
           {/* Creator Info */}
           <View className="flex-row items-center mb-4">
-            <ProfileAvatar imageUrl={match.creatorImage} size={48} />
+            <ProfileAvatar
+              imageUrl={match.creatorImage}
+              preferredAvatarId={
+                currentUser?.id && match.creatorId === currentUser.id ? preferredAvatarId : undefined
+              }
+              fallbackUserId={
+                currentUser?.id && match.creatorId === currentUser.id
+                  ? undefined
+                  : match.creatorId || `${match.id}:creator`
+              }
+              fallbackGender={
+                currentUser?.id && match.creatorId === currentUser.id ? undefined : match.creatorGender
+              }
+              size={48}
+            />
             <View className="ml-3 flex-1">
               <Text className="text-body font-medium text-muted-foreground">Organized by</Text>
               <Text className="text-h4 font-semibold text-foreground">{match.creatorName}</Text>
@@ -280,6 +346,29 @@ export default function MatchDetail() {
 
           {/* Players */}
           <View className="py-6 border-t border-b border-border">
+            <View className="flex-row justify-center items-center gap-8 mb-5">
+              <ProfileAvatar
+                imageUrl={match.playerAImage}
+                preferredAvatarId={isPlayerASelf ? preferredAvatarId : undefined}
+                fallbackUserId={
+                  isPlayerASelf ? undefined : match.playerAUserId ?? `${match.id}:playerA`
+                }
+                fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
+                size={72}
+                variant="plain"
+              />
+              <Text className="text-h5 font-semibold text-muted-foreground">vs</Text>
+              <ProfileAvatar
+                imageUrl={match.playerBImage}
+                preferredAvatarId={isPlayerBSelf ? preferredAvatarId : undefined}
+                fallbackUserId={
+                  isPlayerBSelf ? undefined : match.playerBUserId ?? `${match.id}:playerB`
+                }
+                fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
+                size={72}
+                variant="plain"
+              />
+            </View>
             <Text className="text-h2 font-bold text-foreground text-center mb-2">
               {match.playerA}
             </Text>
