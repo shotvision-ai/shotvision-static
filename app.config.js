@@ -10,9 +10,25 @@ const path = require("path");
  * Android needs client_type 1 (add SHA-1 in Firebase → download refreshed google-services.json),
  * or set EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID from an Android OAuth client in Google Cloud Console.
  */
+/** Prefer repo root (survives `expo prebuild --clean`); legacy path for older checkouts. */
+function resolveGoogleServicesFilePath() {
+  const candidates = [
+    path.join(__dirname, "google-services.json"),
+    path.join(__dirname, "android/app/google-services.json"),
+  ];
+  for (const absolute of candidates) {
+    if (fs.existsSync(absolute)) {
+      return path.relative(__dirname, absolute).split(path.sep).join("/");
+    }
+  }
+  return undefined;
+}
+
 function readGoogleServicesOAuthIds() {
   try {
-    const filePath = path.join(__dirname, "android/app/google-services.json");
+    const relative = resolveGoogleServicesFilePath();
+    if (!relative) return { web: undefined, android: undefined, ios: undefined };
+    const filePath = path.join(__dirname, relative);
     const json = JSON.parse(fs.readFileSync(filePath, "utf8"));
     const oauthClients = json.client?.[0]?.oauth_client ?? [];
     let webId;
@@ -39,6 +55,7 @@ function readGoogleServicesOAuthIds() {
 }
 
 const gsOAuth = readGoogleServicesOAuthIds();
+const googleServicesFile = resolveGoogleServicesFilePath();
 
 /** iOS URL scheme for Google Sign-In when not using GoogleService-Info.plist (see RN Google Sign-In Expo plugin). */
 function iosUrlSchemeFromWebClientId(webClientId) {
@@ -81,7 +98,7 @@ plugins.push(
 module.exports = {
   name: "ShotVision",
   slug: "shotvision",
-  version: "4.0.0",
+  version: "5.0.7",
   scheme: "shotvision",
 
   /** Passed to the app at runtime (see src/config/googleOAuth.ts). Env overrides google-services defaults. */
@@ -120,14 +137,14 @@ module.exports = {
 
   ios: {
     supportsTablet: true,
-    buildNumber: "4",
+    buildNumber: "7",
     bundleIdentifier: "com.shotvision.app",
   },
 
   android: {
     package: "com.shotvision.app",
-    googleServicesFile: "./android/app/google-services.json",
-    versionCode: 4,
+    ...(googleServicesFile ? { googleServicesFile } : {}),
+    versionCode: 7,
 
     adaptiveIcon: {
       foregroundImage: "./assets/images/app-icon.png",

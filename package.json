@@ -1,6 +1,6 @@
 {
   "name": "Shot-Vision",
-  "version": "4.0.0",
+  "version": "5.0.7",
   "main": "index.js",
   "scripts": {
     "run": "expo run",
@@ -12,6 +12,7 @@
     "lint": "eslint \"**/*.{js,jsx,ts,tsx}\"",
     "format": "yarn lint --fix && prettier \"**/*.{js,jsx,ts,tsx,json}\" --write",
     "typecheck": "tsc --noEmit",
+    "test:api": "node scripts/test-integrated-apis.mjs",
     "generate:assets": "python3 scripts/generate-assets-from-reference.py",
     "web": "expo start --web",
     "update-dependencies": "npx expo install --fix"
