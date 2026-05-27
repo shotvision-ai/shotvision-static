@@ -3,6 +3,8 @@ import { View, TouchableOpacity, Modal, ScrollView } from "react-native";
 import { Text } from "~/components/ui/text";
 import { Button } from "~/components/ui/button";
 import LucideIcon from "~/lib/icons/LucideIcon";
+import { useAppTheming } from "../../src/hooks/useAppTheming";
+import { HEADER_ICON_HIT_SLOP } from "../../src/utils/touchA11y";
 
 interface CalendarPickerProps {
   visible: boolean;
@@ -21,6 +23,9 @@ export function CalendarPicker({
   minimumDate,
   maximumDate,
 }: CalendarPickerProps) {
+  const { colors, brand, isDark } = useAppTheming();
+  const headerBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0, 0, 0, 0.08)";
+
   const [currentMonth, setCurrentMonth] = useState(
     new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
   );
@@ -116,7 +121,7 @@ export function CalendarPicker({
     <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onCancel}>
       <View
         className="flex-1 justify-center items-center"
-        style={{ backgroundColor: "rgba(0, 0, 0, 0.6)" }}
+        style={{ backgroundColor: colors.modalOverlay }}
       >
         <TouchableOpacity
           activeOpacity={1}
@@ -127,7 +132,7 @@ export function CalendarPicker({
         <View
           style={{
             width: 340,
-            backgroundColor: "#ffffff",
+            backgroundColor: colors.card,
             borderRadius: 24,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 8 },
@@ -145,32 +150,56 @@ export function CalendarPicker({
               paddingHorizontal: 24,
               paddingVertical: 20,
               borderBottomWidth: 1,
-              borderBottomColor: "rgba(0, 0, 0, 0.08)",
+              borderBottomColor: headerBorder,
             }}
           >
             {!showYearPicker ? (
               <>
-                <TouchableOpacity onPress={handlePreviousMonth} style={{ padding: 4 }}>
-                  <LucideIcon name="ChevronLeft" size={22} color="#666" />
+                <TouchableOpacity
+                  onPress={handlePreviousMonth}
+                  hitSlop={HEADER_ICON_HIT_SLOP}
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous month"
+                  style={{ padding: 8, minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center" }}
+                >
+                  <LucideIcon name="ChevronLeft" size={22} color={colors.muted} />
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={handleYearPress} style={{ padding: 4 }}>
-                  <Text style={{ fontSize: 17, fontWeight: "600", color: "#1f2937" }}>
+                <TouchableOpacity
+                  onPress={handleYearPress}
+                  hitSlop={HEADER_ICON_HIT_SLOP}
+                  accessibilityRole="button"
+                  accessibilityLabel="Select year"
+                  style={{ padding: 8, minHeight: 44, justifyContent: "center" }}
+                >
+                  <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground }}>
                     {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={handleNextMonth} style={{ padding: 4 }}>
-                  <LucideIcon name="ChevronRight" size={22} color="#666" />
+                <TouchableOpacity
+                  onPress={handleNextMonth}
+                  hitSlop={HEADER_ICON_HIT_SLOP}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next month"
+                  style={{ padding: 8, minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center" }}
+                >
+                  <LucideIcon name="ChevronRight" size={22} color={colors.muted} />
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <TouchableOpacity onPress={() => setShowYearPicker(false)} style={{ padding: 4 }}>
-                  <LucideIcon name="ChevronLeft" size={22} color="#666" />
+                <TouchableOpacity
+                  onPress={() => setShowYearPicker(false)}
+                  hitSlop={HEADER_ICON_HIT_SLOP}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to month view"
+                  style={{ padding: 8, minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center" }}
+                >
+                  <LucideIcon name="ChevronLeft" size={22} color={colors.muted} />
                 </TouchableOpacity>
 
-                <Text style={{ fontSize: 17, fontWeight: "600", color: "#1f2937" }}>
+                <Text style={{ fontSize: 17, fontWeight: "600", color: colors.foreground }}>
                   Select Year
                 </Text>
 
@@ -187,7 +216,7 @@ export function CalendarPicker({
                 <View style={{ flexDirection: "row", marginBottom: 16 }}>
                   {weekDays.map((day, index) => (
                     <View key={index} style={{ flex: 1, alignItems: "center" }}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: "#9ca3af" }}>
+                      <Text style={{ fontSize: 12, fontWeight: "600", color: colors.muted }}>
                         {day}
                       </Text>
                     </View>
@@ -230,9 +259,11 @@ export function CalendarPicker({
                               justifyContent: "center",
                               borderRadius: 12,
                               backgroundColor: isSelected
-                                ? "#2563eb"
+                                ? brand.blue
                                 : isToday
-                                  ? "rgba(34, 197, 94, 0.1)"
+                                  ? isDark
+                                    ? "rgba(34, 197, 94, 0.15)"
+                                    : "rgba(34, 197, 94, 0.1)"
                                   : "transparent",
                               opacity: isDisabled ? 0.25 : 1,
                             }}
@@ -241,7 +272,11 @@ export function CalendarPicker({
                               style={{
                                 fontSize: 15,
                                 fontWeight: isSelected || isToday ? "600" : "400",
-                                color: isSelected ? "#ffffff" : isToday ? "#2563eb" : "#1f2937",
+                                color: isSelected
+                                  ? colors.onPrimary
+                                  : isToday
+                                    ? brand.blue
+                                    : colors.foreground,
                               }}
                             >
                               {day}
@@ -278,9 +313,11 @@ export function CalendarPicker({
                               justifyContent: "center",
                               borderRadius: 12,
                               backgroundColor: isSelected
-                                ? "#2563eb"
+                                ? brand.blue
                                 : isCurrentYear
-                                  ? "rgba(34, 197, 94, 0.1)"
+                                  ? isDark
+                                    ? "rgba(34, 197, 94, 0.15)"
+                                    : "rgba(34, 197, 94, 0.1)"
                                   : "transparent",
                             }}
                           >
@@ -289,10 +326,10 @@ export function CalendarPicker({
                                 fontSize: 16,
                                 fontWeight: isSelected || isCurrentYear ? "600" : "400",
                                 color: isSelected
-                                  ? "#ffffff"
+                                  ? colors.onPrimary
                                   : isCurrentYear
-                                    ? "#2563eb"
-                                    : "#1f2937",
+                                    ? brand.blue
+                                    : colors.foreground,
                               }}
                             >
                               {year}
@@ -317,14 +354,14 @@ export function CalendarPicker({
             }}
           >
             <Button variant="outline" onPress={onCancel} className="flex-1 rounded-xl">
-              <Text style={{ fontSize: 15, fontWeight: "600", color: "#1f2937" }}>Cancel</Text>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>Cancel</Text>
             </Button>
             <Button
               onPress={handleConfirm}
               className="flex-1 rounded-xl"
-              style={{ backgroundColor: "#2563eb" }}
+              style={{ backgroundColor: brand.blue }}
             >
-              <Text style={{ fontSize: 15, fontWeight: "600", color: "#ffffff" }}>OK</Text>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.onPrimary }}>OK</Text>
             </Button>
           </View>
         </View>

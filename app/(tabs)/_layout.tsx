@@ -1,29 +1,21 @@
 import { Tabs, useRouter } from "expo-router";
-import { TouchableOpacity, View, Platform, StatusBar as RNStatusBar } from "react-native";
+import { TouchableOpacity, View } from "react-native";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
-import { NOTIFICATIONS_API_ENABLED } from "../../src/config/featureFlags";
-
+import { HEADER_ICON_HIT_SLOP } from "~/src/utils/touchA11y";
 export default function TabsLayout() {
   const { theme } = useTheme();
   const router = useRouter();
 
   const NotificationButton = () => (
-    <TouchableOpacity onPress={() => router.push("/notifications")} style={{ paddingRight: 4 }}>
-      <View style={{ position: "relative" }}>
-        <LucideIcon name="Bell" size={22} color={theme.colors.foreground} />
-        <View
-          style={{
-            position: "absolute",
-            top: -2,
-            right: -2,
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: "#6366f1",
-          }}
-        />
-      </View>
+    <TouchableOpacity
+      onPress={() => router.push("/notifications")}
+      hitSlop={HEADER_ICON_HIT_SLOP}
+      style={{ paddingRight: 4, minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
+      accessibilityRole="button"
+      accessibilityLabel="Notifications"
+    >
+      <LucideIcon name="Bell" size={22} color={theme.colors.foreground} />
     </TouchableOpacity>
   );
 
@@ -59,7 +51,7 @@ export default function TabsLayout() {
           shadowOpacity: 0,
           borderBottomWidth: 0,
         },
-        headerStatusBarHeight: Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : undefined,
+        headerStatusBarHeight: undefined,
         headerTitleStyle: {
           fontFamily: theme.typography.h2?.fontFamily || "DMSans_700Bold",
           fontSize: 24,
@@ -80,8 +72,7 @@ export default function TabsLayout() {
           title: "Explore Matches",
           tabBarLabel: "Explore",
           tabBarIcon: ({ color }) => <LucideIcon name="Users" size={24} color={color} />,
-          headerRight: () =>
-            NOTIFICATIONS_API_ENABLED ? <NotificationButton /> : undefined,
+          headerRight: () => <NotificationButton />,
         }}
       />
       <Tabs.Screen
@@ -90,8 +81,7 @@ export default function TabsLayout() {
           title: "My Matches",
           tabBarLabel: "My Matches",
           tabBarIcon: ({ color }) => <LucideIcon name="Trophy" size={24} color={color} />,
-          headerRight: () =>
-            NOTIFICATIONS_API_ENABLED ? <NotificationButton /> : undefined,
+          headerRight: () => <NotificationButton />,
         }}
       />
       <Tabs.Screen
@@ -100,8 +90,7 @@ export default function TabsLayout() {
           title: "Profile",
           tabBarLabel: "Profile",
           tabBarIcon: ({ color }) => <LucideIcon name="User" size={24} color={color} />,
-          headerRight: () =>
-            NOTIFICATIONS_API_ENABLED ? <NotificationButton /> : undefined,
+          headerRight: () => <NotificationButton />,
         }}
       />
     </Tabs>

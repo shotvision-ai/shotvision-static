@@ -1,19 +1,30 @@
-import { useState, useEffect } from "react";
-import { View, ScrollView, TouchableOpacity, Platform, Alert, ActivityIndicator } from "react-native";
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  InteractionManager,
+} from "react-native";
 import { Image } from "expo-image";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Stack, useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
 import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import LucideIcon from "~/lib/icons/LucideIcon";
+import { useTheme } from "~/theming/ThemeProvider";
 import { useAuth } from "../src/context/AuthContext";
 import { useDefaultAvatar } from "../src/context/DefaultAvatarContext";
 import { profileService } from "../src/services/api/profileService";
-import { PROFILE_IMAGE_UPLOAD_ENABLED } from "../src/config/featureFlags";
 import { devLog } from "../src/utils/devLog";
+import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErrors";
+import { useAuthStore } from "../src/stores/authStore";
 import {
   CLASSIC_AVATAR_MAX,
   defaultAvatarAccent,
@@ -25,15 +36,27 @@ import {
 } from "~/lib/defaultAvatars";
 
 export default function EditProfile() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { theme } = useTheme();
   const { user, refreshUser } = useAuth();
-  const { preferredAvatarId, setPreferredAvatarId } = useDefaultAvatar();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
-
+  const { preferredAvatarId, setPreferredAvatarId, useBuiltInAvatar, displayRevision } =
+    useDefaultAvatar();
+  const profileImageRevision = useAuthStore((s) => s.profileImageRevision);
+  const avatarCacheRevision = displayRevision + profileImageRevision;
+  const imageDisplayKey = user ? `${user.id}-${avatarCacheRevision}` : undefined;
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [location, setLocation] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -43,32 +66,50 @@ export default function EditProfile() {
     }
   }, [user]);
 
-  const handleSave = async () => {
-    if (name.trim() === "") {
+  const handleSave = useCallback(async () => {
+    if (!user) return;
+
+    const trimmedName = name.trim();
+    if (trimmedName === "") {
       Alert.alert("Validation Error", "Name cannot be empty.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await profileService.updateProfile({
-        name,
-        bio,
-        location,
+      const patch = {
+        name: trimmedName,
+        bio: bio.trim() || undefined,
+        location: location.trim() || undefined,
+      };
+
+      const updated = await profileService.updateProfile(patch, user);
+
+      useAuthStore.setState({ user: updated });
+
+      if (!isMountedRef.current) return;
+
+      router.back();
+
+      InteractionManager.runAfterInteractions(() => {
+        if (!isMountedRef.current) return;
+        Alert.alert("Success", "Profile updated successfully!");
       });
-      
-      await refreshUser();
-      
-      Alert.alert("Success", "Profile updated successfully!", [
-        { text: "OK", onPress: () => router.back() }
-      ]);
-    } catch (error: any) {
+
+      void refreshUser({ invalidateOnAuthError: false, swallowError: true });
+    } catch (error: unknown) {
+      if (!isMountedRef.current) return;
       devLog.error("[edit-profile] save failed:", error);
-      Alert.alert("Error", error.message || "Failed to update profile. Please try again.");
+      Alert.alert(
+        "Error",
+        getUserFriendlyErrorMessage(error, "Failed to update profile. Please try again.")
+      );
     } finally {
-      setIsSubmitting(false);
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
-  };
+  }, [user, name, bio, location, refreshUser, router]);
 
   if (!user) return null;
 
@@ -100,189 +141,233 @@ export default function EditProfile() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingTop: 8 + androidTopOffset,
-          paddingBottom: 100,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Profile photo: display only. Upload UI disabled until storage is live. */}
-        <View className="items-center mb-8">
-          <ProfileAvatar
-            imageUrl={user.image}
-            preferredAvatarId={preferredAvatarId}
-            size={120}
-            withBorder={true}
-          />
-          {/* TODO: Re-enable after production storage integration (Cloudinary/S3). Set PROFILE_IMAGE_UPLOAD_ENABLED. */}
-          {!PROFILE_IMAGE_UPLOAD_ENABLED ? (
-            <Text className="text-caption text-muted-foreground mt-4 text-center px-4">
-              Custom photo upload is coming soon. Choose a default picture below.
-            </Text>
-          ) : null}
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
 
-          <Text className="text-caption font-semibold text-muted-foreground mt-8 mb-3 self-start px-1">
-            DEFAULT PICTURE
-          </Text>
-          <Text className="text-caption text-muted-foreground mb-4 self-start px-1">
-            Used when you don&apos;t have a profile photo. Female (9–12) and male (13–16) use bundled
-            illustrations; classic (1–8) uses color placeholders.
-          </Text>
-          <Text className="text-caption font-semibold text-muted-foreground mb-3 self-start px-1">
-            Classic
-          </Text>
-          <View className="flex-row flex-wrap justify-center gap-3 w-full mb-2">
-            {Array.from({ length: CLASSIC_AVATAR_MAX }, (_, i) => i + 1).map((id) => {
-              const selected = preferredAvatarId === id;
-              return (
-                <TouchableOpacity
-                  key={id}
-                  onPress={() => void setPreferredAvatarId(id)}
-                  activeOpacity={0.85}
-                  style={{
-                    borderRadius: 999,
-                    padding: selected ? 3 : 0,
-                    borderWidth: selected ? 3 : 0,
-                    borderColor: "#2563eb",
-                  }}
-                >
-                  {renderDefaultPickerTile(id)}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <Text className="text-caption font-semibold text-muted-foreground mb-3 mt-4 self-start px-1">
-            Female
-          </Text>
-          <View className="flex-row flex-wrap justify-center gap-3 w-full">
-            {Array.from({ length: FEMALE_AVATAR_MAX - FEMALE_AVATAR_MIN + 1 }, (_, i) => i + FEMALE_AVATAR_MIN).map(
-              (id) => {
-                const selected = preferredAvatarId === id;
-                return (
-                  <TouchableOpacity
-                    key={id}
-                    onPress={() => void setPreferredAvatarId(id)}
-                    activeOpacity={0.85}
-                    style={{
-                      borderRadius: 999,
-                      padding: selected ? 3 : 0,
-                      borderWidth: selected ? 3 : 0,
-                      borderColor: "#2563eb",
-                    }}
-                  >
-                    {renderDefaultPickerTile(id)}
-                  </TouchableOpacity>
-                );
-              }
-            )}
-          </View>
-          <Text className="text-caption font-semibold text-muted-foreground mb-3 mt-4 self-start px-1">
-            Male
-          </Text>
-          <View className="flex-row flex-wrap justify-center gap-3 w-full">
-            {Array.from({ length: MALE_AVATAR_MAX - MALE_AVATAR_MIN + 1 }, (_, i) => i + MALE_AVATAR_MIN).map(
-              (id) => {
-                const selected = preferredAvatarId === id;
-                return (
-                  <TouchableOpacity
-                    key={id}
-                    onPress={() => void setPreferredAvatarId(id)}
-                    activeOpacity={0.85}
-                    style={{
-                      borderRadius: 999,
-                      padding: selected ? 3 : 0,
-                      borderWidth: selected ? 3 : 0,
-                      borderColor: "#2563eb",
-                    }}
-                  >
-                    {renderDefaultPickerTile(id)}
-                  </TouchableOpacity>
-                );
-              }
-            )}
-          </View>
-        </View>
-
-        {/* Form Fields */}
-        <View className="gap-5">
-          {/* Name */}
-          <View>
-            <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">NAME</Text>
-            <Input
-              placeholder="Enter your name"
-              value={name}
-              onChangeText={setName}
-              className="rounded-xl border-0 bg-muted/40 px-4 py-3.5 text-body"
-            />
-          </View>
-
-          {/* Email (Read-only) */}
-          <View>
-            <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">
-              EMAIL
-            </Text>
-            <View className="rounded-xl bg-muted/20 px-4 py-3.5">
-              <Text className="text-body text-muted-foreground/60">{user.email}</Text>
-            </View>
-          </View>
-
-          {/* Bio */}
-          <View>
-            <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">
-              BIO (OPTIONAL)
-            </Text>
-            <Textarea
-              placeholder="Tell us about yourself"
-              value={bio}
-              onChangeText={setBio}
-              numberOfLines={4}
-              className="rounded-xl border-0 bg-muted/40 px-4 py-3.5 text-body min-h-[100px]"
-            />
-          </View>
-
-          {/* Location */}
-          <View>
-            <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">
-              LOCATION (OPTIONAL)
-            </Text>
-            <Input
-              placeholder="City, State"
-              value={location}
-              onChangeText={setLocation}
-              className="rounded-xl border-0 bg-muted/40 px-4 py-3.5 text-body"
-            />
-          </View>
-        </View>
-
-        {/* Save Button */}
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        {/* JS header — inset-aware (same pattern as FAQ) */}
         <View
-          className="mt-8"
           style={{
-            shadowColor: "#22c55e",
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 6,
-            elevation: 3,
+            paddingTop: insets.top,
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+            backgroundColor: theme.colors.background,
           }}
         >
-          <Button 
-            onPress={handleSave} 
-            size="lg" 
-            className="rounded-xl py-4 bg-primary"
-            disabled={isSubmitting}
+          <View
+            style={{
+              height: 56,
+              flexDirection: "row",
+              alignItems: "center",
+              paddingHorizontal: 4,
+            }}
           >
-            {isSubmitting ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-button font-semibold text-primary-foreground">Save Changes</Text>
-            )}
-          </Button>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={{ padding: 8, marginLeft: 4, minWidth: 44, minHeight: 44, justifyContent: "center" }}
+            >
+              <LucideIcon name="ChevronLeft" size={26} color={theme.colors.foreground} />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  fontFamily: theme.typography.h2?.fontFamily,
+                  color: theme.colors.foreground,
+                }}
+                numberOfLines={1}
+              >
+                Edit Profile
+              </Text>
+            </View>
+
+            <View style={{ width: 44 }} />
+          </View>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 56 : 0}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              paddingHorizontal: 20,
+              paddingTop: 8,
+              paddingBottom: 40 + insets.bottom,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <View className="items-center mb-6">
+              <ProfileAvatar
+                imageUrl={user.image}
+                preferredAvatarId={useBuiltInAvatar ? preferredAvatarId : undefined}
+                fallbackUserId={user.id}
+                imageDisplayKey={imageDisplayKey}
+                profileImageCacheRevision={avatarCacheRevision}
+                size={120}
+                withBorder={true}
+              />
+
+              <View className="flex-row flex-wrap justify-center gap-3 w-full mt-6 mb-3">
+                {Array.from({ length: CLASSIC_AVATAR_MAX }, (_, i) => i + 1).map((id) => {
+                  const selected = preferredAvatarId === id;
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      onPress={() => void setPreferredAvatarId(id)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="Select profile picture"
+                      accessibilityState={{ selected }}
+                      style={{
+                        borderRadius: 999,
+                        padding: selected ? 3 : 0,
+                        borderWidth: selected ? 3 : 0,
+                        borderColor: "#2563eb",
+                      }}
+                    >
+                      {renderDefaultPickerTile(id)}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View className="flex-row flex-wrap justify-center gap-3 w-full mb-3">
+                {Array.from(
+                  { length: FEMALE_AVATAR_MAX - FEMALE_AVATAR_MIN + 1 },
+                  (_, i) => i + FEMALE_AVATAR_MIN
+                ).map((id) => {
+                  const selected = preferredAvatarId === id;
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      onPress={() => void setPreferredAvatarId(id)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="Select profile picture"
+                      accessibilityState={{ selected }}
+                      style={{
+                        borderRadius: 999,
+                        padding: selected ? 3 : 0,
+                        borderWidth: selected ? 3 : 0,
+                        borderColor: "#2563eb",
+                      }}
+                    >
+                      {renderDefaultPickerTile(id)}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View className="flex-row flex-wrap justify-center gap-3 w-full">
+                {Array.from(
+                  { length: MALE_AVATAR_MAX - MALE_AVATAR_MIN + 1 },
+                  (_, i) => i + MALE_AVATAR_MIN
+                ).map((id) => {
+                  const selected = preferredAvatarId === id;
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      onPress={() => void setPreferredAvatarId(id)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="Select profile picture"
+                      accessibilityState={{ selected }}
+                      style={{
+                        borderRadius: 999,
+                        padding: selected ? 3 : 0,
+                        borderWidth: selected ? 3 : 0,
+                        borderColor: "#2563eb",
+                      }}
+                    >
+                      {renderDefaultPickerTile(id)}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View className="gap-5 mt-2">
+              <View>
+                <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">NAME</Text>
+                <Input
+                  placeholder="Enter your name"
+                  value={name}
+                  onChangeText={setName}
+                  className="rounded-xl border-0 bg-muted/40 px-4 py-3.5 text-body"
+                />
+              </View>
+
+              <View>
+                <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">
+                  EMAIL
+                </Text>
+                <View className="rounded-xl bg-muted/20 px-4 py-3.5">
+                  <Text className="text-body text-muted-foreground/60">{user.email}</Text>
+                </View>
+              </View>
+
+              <View>
+                <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">
+                  BIO (OPTIONAL)
+                </Text>
+                <Textarea
+                  placeholder="Tell us about yourself"
+                  value={bio}
+                  onChangeText={setBio}
+                  numberOfLines={4}
+                  className="rounded-xl border-0 bg-muted/40 px-4 py-3.5 text-body min-h-[100px]"
+                />
+              </View>
+
+              <View>
+                <Text className="text-caption font-semibold text-muted-foreground mb-2 px-1">
+                  LOCATION (OPTIONAL)
+                </Text>
+                <Input
+                  placeholder="City, State"
+                  value={location}
+                  onChangeText={setLocation}
+                  className="rounded-xl border-0 bg-muted/40 px-4 py-3.5 text-body"
+                />
+              </View>
+            </View>
+
+            <View
+              className="mt-8"
+              style={{
+                shadowColor: "#22c55e",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.15,
+                shadowRadius: 6,
+                elevation: 3,
+              }}
+            >
+              <Button
+                onPress={() => void handleSave()}
+                size="lg"
+                className="rounded-xl py-4 bg-primary"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-button font-semibold text-primary-foreground">
+                    Save Changes
+                  </Text>
+                )}
+              </Button>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    </>
   );
 }

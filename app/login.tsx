@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { View, TouchableOpacity, Platform, Alert, ActivityIndicator } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -11,11 +11,15 @@ import { isGoogleOAuthConfigured } from "../src/config/googleOAuth";
 import { formatLoginFailure } from "../src/utils/loginErrorUi";
 import {
   configureGoogleSignIn,
+  shouldPreferBrowserGoogleSignIn,
   signInWithGoogle,
 } from "../src/services/google/signInWithGoogle";
 import { devLog } from "../src/utils/devLog";
+import { BRAND_BLUE, useAppTheming } from "../src/hooks/useAppTheming";
 
-const BLUE = "#2563eb";
+const BLUE = BRAND_BLUE;
+
+type LoginPhase = "idle" | "google" | "server" | "retry";
 
 /** Compact Google “G” mark (brand colors). */
 function GoogleMark({ size = 22 }: { size?: number }) {
@@ -52,25 +56,11 @@ function AppleLogo({ size = 22, color = "#1f2937" }: { size?: number; color?: st
   );
 }
 
-const oauthButtonStyle = {
-  backgroundColor: "#ffffff",
-  borderWidth: 1.5,
-  borderColor: "#e5e7eb",
-  borderRadius: 14,
-  paddingVertical: 14,
-  alignItems: "center" as const,
-  justifyContent: "center" as const,
-  shadowColor: "#000",
-  shadowOffset: { width: 0, height: 1 },
-  shadowOpacity: 0.06,
-  shadowRadius: 4,
-  elevation: 1,
-};
-
 type LoginBodyProps = {
   googleDisabled: boolean;
   googleLoading: boolean;
   googleOpacity: number;
+  progressMessage: string | null;
   onGooglePress: () => void;
 };
 
@@ -78,11 +68,27 @@ function LoginBody({
   googleDisabled,
   googleLoading,
   googleOpacity,
+  progressMessage,
   onGooglePress,
 }: LoginBodyProps) {
   const router = useRouter();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
+  const { colors, isDark } = useAppTheming();
   const [isLoggingInApple, setIsLoggingInApple] = useState(false);
+
+  const oauthButtonStyle = {
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: isDark ? 0.2 : 0.06,
+    shadowRadius: 4,
+    elevation: 1,
+  };
 
   const handleAppleSignIn = async () => {
     try {
@@ -115,7 +121,7 @@ function LoginBody({
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <View style={{ flex: 1, paddingHorizontal: 24, justifyContent: "center", paddingTop: androidTopOffset }}>
+      <View style={{ flex: 1, paddingHorizontal: 24, justifyContent: "center" }}>
         <View className="items-center mb-12">
           <View
             style={{
@@ -156,7 +162,7 @@ function LoginBody({
             ) : (
               <>
                 <GoogleMark size={22} />
-                <Text style={{ fontSize: 15, fontWeight: "600", color: "#1f2937" }}>
+                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>
                   Continue with Google
                 </Text>
               </>
@@ -164,12 +170,21 @@ function LoginBody({
           </View>
         </TouchableOpacity>
 
+        {progressMessage ? (
+          <Text
+            className="text-caption text-muted-foreground text-center mb-3 px-2"
+            style={{ lineHeight: 18 }}
+          >
+            {progressMessage}
+          </Text>
+        ) : null}
+
         <TouchableOpacity
           onPress={handleAppleSignIn}
-          disabled={isLoggingInApple}
+          disabled={isLoggingInApple || googleDisabled}
           style={{
             ...oauthButtonStyle,
-            opacity: isLoggingInApple ? 0.6 : 1,
+            opacity: isLoggingInApple || googleDisabled ? 0.6 : 1,
           }}
         >
           <View className="flex-row items-center gap-3">
@@ -177,8 +192,8 @@ function LoginBody({
               <ActivityIndicator size="small" color={BLUE} />
             ) : (
               <>
-                <AppleLogo size={22} color="#1f2937" />
-                <Text style={{ fontSize: 15, fontWeight: "600", color: "#1f2937" }}>
+                <AppleLogo size={22} color={colors.foreground} />
+                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>
                   Continue with Apple
                 </Text>
               </>
@@ -202,15 +217,16 @@ function LoginBody({
 }
 
 function LoginWithGoogleAuth() {
-  const router = useRouter();
-  const { login } = useAuth();
-  const [isLoggingInGoogle, setIsLoggingInGoogle] = useState(false);
+  const { login, isAuthenticating } = useAuth();
+  const [phase, setPhase] = useState<LoginPhase>("idle");
+
+  const isLoggingIn = phase !== "idle" || isAuthenticating;
 
   useEffect(() => {
     configureGoogleSignIn();
   }, []);
 
-  const onGooglePress = async () => {
+  const onGooglePress = useCallback(async () => {
     if (Platform.OS === "web") {
       Alert.alert(
         "Use the mobile app",
@@ -219,28 +235,58 @@ function LoginWithGoogleAuth() {
       return;
     }
 
-    setIsLoggingInGoogle(true);
+    if (isLoggingIn) return;
+
+    setPhase("google");
     try {
       const result = await signInWithGoogle();
-      if (result.type === "cancel") return;
+      if (result.type === "cancel") {
+        setPhase("idle");
+        return;
+      }
 
-      await login(result);
-      router.replace("/(tabs)/dashboard");
+      setPhase("server");
+      await login(result, {
+        onBackendAttempt: (attempt, _max) => {
+          if (attempt > 1) setPhase("retry");
+        },
+      });
+      // Home navigation is handled in app/_layout.tsx when isAuthenticated becomes true.
     } catch (err: unknown) {
-      const { title, message } = formatLoginFailure(err);
+      const { title, message, canRetry } = formatLoginFailure(err);
       devLog.error("[login] Google sign-in failed:", err);
-      Alert.alert(title, message);
+
+      if (canRetry) {
+        Alert.alert(title, message, [
+          { text: "Not now", style: "cancel" },
+          { text: "Try again", onPress: () => void onGooglePress() },
+        ]);
+      } else {
+        Alert.alert(title, message);
+      }
     } finally {
-      setIsLoggingInGoogle(false);
+      setPhase("idle");
     }
-  };
+  }, [isLoggingIn, login]);
+
+  const progressMessage =
+    phase === "google"
+      ? shouldPreferBrowserGoogleSignIn()
+        ? "Opening Google sign-in in your browser…"
+        : "Signing in with Google…"
+      : phase === "server"
+        ? "Connecting to Shot Vision…"
+        : phase === "retry"
+          ? "Server is starting up — please wait, this can take up to a minute…"
+          : null;
 
   return (
     <LoginBody
       onGooglePress={() => void onGooglePress()}
-      googleDisabled={isLoggingInGoogle}
-      googleLoading={isLoggingInGoogle}
-      googleOpacity={isLoggingInGoogle ? 0.6 : 1}
+      googleDisabled={isLoggingIn}
+      googleLoading={isLoggingIn}
+      googleOpacity={isLoggingIn ? 0.65 : 1}
+      progressMessage={progressMessage}
     />
   );
 }
@@ -259,6 +305,7 @@ function LoginGoogleNotConfigured() {
       googleDisabled={false}
       googleLoading={false}
       googleOpacity={1}
+      progressMessage={null}
     />
   );
 }

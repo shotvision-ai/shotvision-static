@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, TouchableOpacity, Modal, Alert, TextInput, ActivityIndicator } from "react-native";
+import { View, Pressable, TouchableOpacity, Modal, Alert, TextInput, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
 import { StatusBadge } from "./StatusBadge";
@@ -7,9 +7,19 @@ import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
-import { matchService } from "../../src/services/api/matchService";
+import { useMatchLike } from "../../src/hooks/useMatchLike";
+import { useMatchReport } from "../../src/hooks/useMatchReport";
 import { useAuth } from "../../src/context/AuthContext";
-import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
+import { useCurrentUserAvatarProps } from "../../src/hooks/useCurrentUserAvatar";
+import {
+  isMatchParticipantSelf,
+  resolveMatchParticipantImageUrl,
+} from "../../src/utils/matchParticipantAvatar";
+import { isMatchOwner } from "../../src/utils/matchEditEligibility";
+import { MatchVisibilityControl } from "./MatchVisibilityControl";
+import { OwnerMatchCardActions } from "./OwnerMatchCardActions";
+import { MatchLikeButton } from "./MatchLikeButton";
+import { STANDARD_HIT_SLOP } from "../../src/utils/touchA11y";
 
 interface PublicMatchCardProps {
   match: Match;
@@ -28,50 +38,21 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const { user: currentUser } = useAuth();
-  const { preferredAvatarId } = useDefaultAvatar();
+  const currentUserAvatar = useCurrentUserAvatarProps(currentUser?.id);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showUndoModal, setShowUndoModal] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [reportNotes, setReportNotes] = useState("");
-  const [reported, setReported] = useState(false);
+  const { isLiked, likesCount, isLiking, canToggle, handleLike } = useMatchLike(match);
+  const { isReported, isSubmitting: isReportSubmitting, submitReport, undoReport } =
+    useMatchReport(match);
 
-  // Like state
-  const [isLiked, setIsLiked] = useState(match.isLiked || false);
-  const [likesCount, setLikesCount] = useState(match.likesCount || 0);
-  const [isLiking, setIsLiking] = useState(false);
-
-  const handleLike = async () => {
-    if (isLiking) return;
-
-    const previousIsLiked = isLiked;
-    const previousLikesCount = likesCount;
-
-    // Optimistic update
-    setIsLiked(!previousIsLiked);
-    setLikesCount(previousIsLiked ? previousLikesCount - 1 : previousLikesCount + 1);
-    setIsLiking(true);
-
-    try {
-      const result = previousIsLiked
-        ? await matchService.unlikeMatch(match.id)
-        : await matchService.likeMatch(match.id);
-      setIsLiked(result.likedByMe);
-      setLikesCount(result.likesCount);
-    } catch (error) {
-      console.error("Failed to like/unlike match:", error);
-      // Rollback on failure
-      setIsLiked(previousIsLiked);
-      setLikesCount(previousLikesCount);
-      Alert.alert("Error", "Failed to update like. Please try again.");
-    } finally {
-      setIsLiking(false);
-    }
-  };
-
-  const handleReport = () => {
-    if (!selectedReason) return;
+  const handleReport = async () => {
+    if (!selectedReason || isReportSubmitting) return;
+    const notes = reportNotes.trim();
+    const ok = await submitReport(selectedReason, notes || undefined);
+    if (!ok) return;
     setShowReportModal(false);
-    setReported(true);
     setSelectedReason(null);
     setReportNotes("");
     Alert.alert(
@@ -82,9 +63,11 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
 
   const handleUndoReport = () => setShowUndoModal(true);
 
-  const confirmUndo = () => {
-    setReported(false);
-    setShowUndoModal(false);
+  const confirmUndo = async () => {
+    const ok = await undoReport();
+    if (ok) {
+      setShowUndoModal(false);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -103,61 +86,82 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
     return null;
   };
 
-  const nameEq = (a: string, b: string) =>
-    Boolean(a.trim()) && Boolean(b.trim()) && a.trim().toLowerCase() === b.trim().toLowerCase();
-  const isPlayerASelf = Boolean(currentUser?.name && nameEq(match.playerA, currentUser.name));
-  const isPlayerBSelf = Boolean(currentUser?.name && nameEq(match.playerB, currentUser.name));
+  const isPlayerASelf = isMatchParticipantSelf(
+    match.playerAUserId,
+    match.playerA,
+    currentUser ?? undefined
+  );
+  const isPlayerBSelf = isMatchParticipantSelf(
+    match.playerBUserId,
+    match.playerB,
+    currentUser ?? undefined
+  );
+
+  const isOwner = isMatchOwner(match, currentUser?.id);
 
   const accentColor =
     match.status === "live" ? "#f59e0b" : match.status === "scheduled" ? "#2563eb" : "#22c55e";
 
+  const openMatchDetails = () => router.push(`/match/${match.id}`);
+
+  const cardContainerStyle = {
+    backgroundColor:
+      match.status === "live"
+        ? theme.name === "dark"
+          ? "rgba(251, 146, 60, 0.1)"
+          : "#FFF4E5"
+        : theme.colors.card,
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 2 } as const,
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "rgba(37,99,235,0.12)",
+    overflow: "hidden" as const,
+  };
+
   return (
-    <TouchableOpacity
-      onPress={() => router.push(`/match/${match.id}`)}
-      className="rounded-2xl mb-4 overflow-hidden"
-      style={{
-        backgroundColor:
-          match.status === "live"
-            ? theme.name === "dark"
-              ? "rgba(251, 146, 60, 0.1)"
-              : "#FFF4E5"
-            : theme.colors.card,
-        shadowColor: "#2563eb",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.07,
-        shadowRadius: 12,
-        elevation: 3,
-        borderWidth: 1,
-        borderColor: "rgba(37,99,235,0.12)",
-        overflow: "hidden",
-      }}
-      activeOpacity={0.7}
-    >
+    <>
+    <View className="rounded-2xl mb-4 overflow-hidden" style={cardContainerStyle}>
       {/* Status accent stripe */}
       <View style={{ height: 4, backgroundColor: accentColor }} />
       <View style={{ padding: 20 }}>
-        {/* Top Row with Public Indicator and Status */}
         <View className="flex-row items-start justify-between mb-3">
-          <View className="flex-1 flex-row items-center">
-            {/* Public Indicator */}
-            <View className="flex-row items-center mr-3">
-              <LucideIcon name="Globe" size={14} color="#9CA3AF" style={{ marginRight: 4 }} />
-              <Text style={{ fontSize: 12, color: "#9CA3AF", fontWeight: "500" }}>Public</Text>
-            </View>
-            {/* Winner Announcement */}
-            {getWinnerText() && (
-              <View className="flex-row items-center">
-                <LucideIcon name="Trophy" size={14} color="#22C55E" style={{ marginRight: 4 }} />
-                <Text style={{ fontSize: 15, fontWeight: "600", color: "#2563eb" }}>
-                  {getWinnerText()}
-                </Text>
+          <View className="flex-1 flex-row items-center flex-wrap gap-2">
+            {isOwner ? (
+              <MatchVisibilityControl match={match} variant="chip" />
+            ) : (
+              <View className="flex-row items-center mr-1">
+                <LucideIcon name="Globe" size={14} color="#9CA3AF" style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 12, color: "#9CA3AF", fontWeight: "500" }}>Public</Text>
               </View>
             )}
+            <Pressable
+              onPress={openMatchDetails}
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+              accessibilityRole="button"
+              accessibilityLabel={getWinnerText() ? `Open match details, ${getWinnerText()}` : "Open match details"}
+            >
+              {getWinnerText() ? (
+                <View className="flex-row items-center">
+                  <LucideIcon name="Trophy" size={14} color="#22C55E" style={{ marginRight: 4 }} />
+                  <Text style={{ fontSize: 15, fontWeight: "600", color: "#2563eb" }}>
+                    {getWinnerText()}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
           </View>
           <StatusBadge status={match.status} />
         </View>
 
-        {/* Players Row */}
+        <Pressable
+          onPress={openMatchDetails}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          accessibilityRole="button"
+          accessibilityLabel="Open match details"
+        >
         <View className="flex-row items-center justify-between mb-4">
           {/* Player A */}
           <View className="items-center flex-1">
@@ -184,10 +188,23 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 className="bg-muted"
               >
                 <ProfileAvatar
-                  imageUrl={match.playerAImage}
-                  preferredAvatarId={isPlayerASelf ? preferredAvatarId : undefined}
+                  imageUrl={resolveMatchParticipantImageUrl(match.playerAImage, {
+                    isSelf: isPlayerASelf,
+                    selfImage: currentUser?.image,
+                  })}
+                  preferredAvatarId={
+                    isPlayerASelf ? currentUserAvatar.preferredAvatarId : undefined
+                  }
+                  imageDisplayKey={
+                    isPlayerASelf ? currentUserAvatar.imageDisplayKey : undefined
+                  }
+                  profileImageCacheRevision={
+                    isPlayerASelf ? currentUserAvatar.profileImageCacheRevision : undefined
+                  }
                   fallbackUserId={
-                    isPlayerASelf ? undefined : match.playerAUserId ?? `${match.id}:playerA`
+                    isPlayerASelf
+                      ? currentUserAvatar.fallbackUserId
+                      : match.playerAUserId ?? `${match.id}:playerA`
                   }
                   fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
                   size={74}
@@ -240,10 +257,23 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 className="bg-muted"
               >
                 <ProfileAvatar
-                  imageUrl={match.playerBImage}
-                  preferredAvatarId={isPlayerBSelf ? preferredAvatarId : undefined}
+                  imageUrl={resolveMatchParticipantImageUrl(match.playerBImage, {
+                    isSelf: isPlayerBSelf,
+                    selfImage: currentUser?.image,
+                  })}
+                  preferredAvatarId={
+                    isPlayerBSelf ? currentUserAvatar.preferredAvatarId : undefined
+                  }
+                  imageDisplayKey={
+                    isPlayerBSelf ? currentUserAvatar.imageDisplayKey : undefined
+                  }
+                  profileImageCacheRevision={
+                    isPlayerBSelf ? currentUserAvatar.profileImageCacheRevision : undefined
+                  }
                   fallbackUserId={
-                    isPlayerBSelf ? undefined : match.playerBUserId ?? `${match.id}:playerB`
+                    isPlayerBSelf
+                      ? currentUserAvatar.fallbackUserId
+                      : match.playerBUserId ?? `${match.id}:playerB`
                   }
                   fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
                   size={74}
@@ -298,87 +328,87 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             </View>
           </View>
         )}
+        </Pressable>
 
-        {/* Divider */}
+        <OwnerMatchCardActions match={match} currentUserId={currentUser?.id} />
+
         <View className="h-px bg-border my-3" />
 
-        {/* Bottom Row with Date/Location and Social Actions */}
         <View className="flex-row items-center justify-between">
-          {/* Date and Location */}
-          <View className="flex-row items-center flex-1">
-            <LucideIcon name="Calendar" size={14} color="#6B7280" style={{ marginRight: 6 }} />
-            <Text style={{ fontSize: 13, color: "#6B7280", marginRight: 12, opacity: 0.7 }}>
-              {formatDate(match.matchDate)}
-            </Text>
-            {match.location && (
-              <Text
-                style={{ fontSize: 13, color: "#6B7280", flex: 1, opacity: 0.7 }}
-                numberOfLines={1}
-              >
-                {match.location}
+          <Pressable
+            onPress={openMatchDetails}
+            style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.7 : 1 })}
+            accessibilityRole="button"
+            accessibilityLabel="Open match details"
+          >
+            <View className="flex-row items-center flex-1">
+              <LucideIcon name="Calendar" size={14} color="#6B7280" style={{ marginRight: 6 }} />
+              <Text style={{ fontSize: 13, color: "#6B7280", marginRight: 12, opacity: 0.7 }}>
+                {formatDate(match.matchDate)}
               </Text>
-            )}
-          </View>
+              {match.location ? (
+                <Text
+                  style={{ fontSize: 13, color: "#6B7280", flex: 1, opacity: 0.7 }}
+                  numberOfLines={1}
+                >
+                  {match.location}
+                </Text>
+              ) : null}
+            </View>
+          </Pressable>
 
           <View className="flex-row items-center gap-2">
-            {/* Like Button */}
-            <TouchableOpacity
-              onPress={handleLike}
-              disabled={isLiking}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 4,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 10,
-                backgroundColor: isLiked ? "rgba(37,99,235,0.08)" : "rgba(107,114,128,0.06)",
-              }}
-            >
-              <LucideIcon
-                name="Heart"
-                size={14}
-                color={isLiked ? "#2563eb" : "#6B7280"}
-                fill={isLiked ? "#2563eb" : "transparent"}
-              />
-              <Text
+            <MatchLikeButton
+              isLiked={isLiked}
+              likesCount={likesCount}
+              isLiking={isLiking}
+              canToggle={canToggle}
+              onLike={() => void handleLike()}
+              readOnlyWhenDisabled={isOwner}
+            />
+
+            {!isOwner ? (
+              <TouchableOpacity
+                onPress={() => {
+                  if (isReported) handleUndoReport();
+                  else setShowReportModal(true);
+                }}
+                disabled={isReportSubmitting}
+                hitSlop={STANDARD_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel={isReported ? "Undo match report" : "Report match"}
+                accessibilityState={{ disabled: isReportSubmitting }}
                 style={{
-                  fontSize: 12,
-                  fontWeight: "600",
-                  color: isLiked ? "#2563eb" : "#6B7280",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 10,
+                  backgroundColor: isReported ? "rgba(34,197,94,0.08)" : "rgba(220,38,38,0.06)",
+                  opacity: isReportSubmitting ? 0.6 : 1,
                 }}
               >
-                {likesCount}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Report / Undo Button */}
-            <TouchableOpacity
-              onPress={() => (reported ? handleUndoReport() : setShowReportModal(true))}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 4,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 10,
-                backgroundColor: reported ? "rgba(34,197,94,0.08)" : "rgba(220,38,38,0.06)",
-              }}
-            >
-              <LucideIcon
-                name={reported ? "CircleCheck" : "Flag"}
-                size={14}
-                color={reported ? "#22c55e" : "#dc2626"}
-              />
-              <Text
-                style={{ fontSize: 12, fontWeight: "600", color: reported ? "#22c55e" : "#dc2626" }}
-              >
-                {reported ? "Reported" : "Report"}
-              </Text>
-            </TouchableOpacity>
+                {isReportSubmitting ? (
+                  <ActivityIndicator size="small" color={isReported ? "#22c55e" : "#dc2626"} />
+                ) : (
+                  <LucideIcon
+                    name={isReported ? "CircleCheck" : "Flag"}
+                    size={14}
+                    color={isReported ? "#22c55e" : "#dc2626"}
+                  />
+                )}
+                <Text
+                  style={{ fontSize: 12, fontWeight: "600", color: isReported ? "#22c55e" : "#dc2626" }}
+                >
+                  {isReported ? "Reported" : "Report"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
       </View>
+    </View>
 
       {/* Report Modal */}
       <Modal
@@ -541,24 +571,28 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             {/* Submit */}
             <View style={{ paddingHorizontal: 16, paddingBottom: 20, paddingTop: 4, gap: 10 }}>
               <TouchableOpacity
-                onPress={handleReport}
-                disabled={!selectedReason}
+                onPress={() => void handleReport()}
+                disabled={!selectedReason || isReportSubmitting}
                 style={{
-                  backgroundColor: selectedReason ? "#dc2626" : "#e5e7eb",
+                  backgroundColor: selectedReason && !isReportSubmitting ? "#dc2626" : "#e5e7eb",
                   borderRadius: 14,
                   paddingVertical: 14,
                   alignItems: "center",
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 15,
-                    fontWeight: "700",
-                    color: selectedReason ? "#ffffff" : "#9ca3af",
-                  }}
-                >
-                  Submit Report
-                </Text>
+                {isReportSubmitting ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "700",
+                      color: selectedReason ? "#ffffff" : "#9ca3af",
+                    }}
+                  >
+                    Submit Report
+                  </Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setShowReportModal(false)}
@@ -645,17 +679,23 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             </View>
             <View style={{ gap: 10 }}>
               <TouchableOpacity
-                onPress={confirmUndo}
+                onPress={() => void confirmUndo()}
+                disabled={isReportSubmitting}
                 style={{
                   backgroundColor: "#dc2626",
                   borderRadius: 12,
                   paddingVertical: 14,
                   alignItems: "center",
+                  opacity: isReportSubmitting ? 0.6 : 1,
                 }}
               >
-                <Text style={{ fontSize: 15, fontWeight: "700", color: "#fff" }}>
-                  Yes, Withdraw Report
-                </Text>
+                {isReportSubmitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={{ fontSize: 15, fontWeight: "700", color: "#fff" }}>
+                    Yes, Withdraw Report
+                  </Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setShowUndoModal(false)}
@@ -669,6 +709,6 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
           </View>
         </View>
       </Modal>
-    </TouchableOpacity>
+    </>
   );
 }

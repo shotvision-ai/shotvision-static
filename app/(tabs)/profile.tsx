@@ -13,8 +13,13 @@ import { Text } from "~/components/ui/text";
 import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useAuth } from "../../src/context/AuthContext";
-import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
+import { useCurrentUserAvatarProps } from "../../src/hooks/useCurrentUserAvatar";
+import { useAppTheming } from "../../src/hooks/useAppTheming";
 import { useUserStats } from "../../src/hooks/useUserStats";
+import { winRateFractionToPercent } from "../../src/utils/userStats";
+import { TRY_AGAIN_LABEL } from "~/components/ui/AsyncListState";
+import { HEADER_ICON_HIT_SLOP } from "../../src/utils/touchA11y";
+
 const BLUE = "#2563eb";
 
 function ProgressBar({ value, max, color = BLUE }: { value: number; max: number; color?: string }) {
@@ -41,6 +46,7 @@ function ProgressBar({ value, max, color = BLUE }: { value: number; max: number;
 }
 
 function MatchCalendar({ year, month }: { year: number; month: number }) {
+  const { colors } = useAppTheming();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: (number | null)[] = [];
@@ -59,7 +65,7 @@ function MatchCalendar({ year, month }: { year: number; month: number }) {
       <View className="flex-row mb-2">
         {dayLabels.map((d) => (
           <View key={d} style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ fontSize: 11, fontWeight: "600", color: "#9ca3af" }}>{d}</Text>
+            <Text style={{ fontSize: 11, fontWeight: "600", color: colors.muted }}>{d}</Text>
           </View>
         ))}
       </View>
@@ -81,7 +87,7 @@ function MatchCalendar({ year, month }: { year: number; month: number }) {
                     <Text
                       style={{
                         fontSize: 13,
-                        color: "#374151",
+                        color: colors.foreground,
                       }}
                     >
                       {day}
@@ -102,14 +108,15 @@ function MatchCalendar({ year, month }: { year: number; month: number }) {
 export default function Profile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, isLoading } = useAuth();
-  const { preferredAvatarId } = useDefaultAvatar();
+  const { colors } = useAppTheming();
+  const { user, isLoading, isHydrated, logout } = useAuth();
+  const currentUserAvatar = useCurrentUserAvatarProps(user?.id);
   const { stats, isLoading: statsLoading, error: statsError, refresh: refreshStats } = useUserStats(!!user);
 
   const matches = stats?.totalMatches ?? 0;
   const wins = stats?.wins ?? 0;
   const losses = stats?.losses ?? 0;
-  const winRate = stats ? Math.round(stats.winRate * 100) : 0;
+  const winRate = stats ? winRateFractionToPercent(stats.winRate) : 0;
   const currentStreak = stats?.streak ?? 0;
 
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
@@ -162,11 +169,12 @@ export default function Profile() {
     }
   };
 
-  if (isLoading) {
+  if (!isHydrated || isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={BLUE} />
+          <Text className="text-body text-muted-foreground mt-4">Loading profile…</Text>
         </View>
       </SafeAreaView>
     );
@@ -178,7 +186,15 @@ export default function Profile() {
         <View className="flex-1 items-center justify-center px-8">
           <Text className="text-h3 font-semibold text-foreground mb-2">Profile not found</Text>
           <TouchableOpacity
-            onPress={() => router.replace("/login")}
+            onPress={() => {
+              void (async () => {
+                try {
+                  await logout();
+                } finally {
+                  router.replace("/login");
+                }
+              })();
+            }}
             className="bg-primary px-8 py-4 rounded-xl mt-4"
           >
             <Text className="text-primary-foreground font-semibold">Go to Login</Text>
@@ -205,7 +221,10 @@ export default function Profile() {
         <View className="items-center mb-8">
           <ProfileAvatar
             imageUrl={user.image}
-            preferredAvatarId={preferredAvatarId}
+            preferredAvatarId={currentUserAvatar.preferredAvatarId}
+            fallbackUserId={currentUserAvatar.fallbackUserId}
+            imageDisplayKey={currentUserAvatar.imageDisplayKey}
+            profileImageCacheRevision={currentUserAvatar.profileImageCacheRevision}
             size={100}
             withBorder={true}
           />
@@ -218,13 +237,16 @@ export default function Profile() {
           </View>
           <TouchableOpacity
             onPress={() => router.push("/edit-profile")}
+            accessibilityRole="button"
+            accessibilityLabel="Edit profile"
             style={{
               marginTop: 16,
               borderWidth: 2,
               borderColor: BLUE,
               borderRadius: 24,
               paddingHorizontal: 24,
-              paddingVertical: 10,
+              paddingVertical: 12,
+              minHeight: 44,
             }}
           >
             <Text style={{ fontSize: 15, fontWeight: "600", color: BLUE }}>Edit Profile</Text>
@@ -283,6 +305,8 @@ export default function Profile() {
 
           <TouchableOpacity
             onPress={handleShare}
+            accessibilityRole="button"
+            accessibilityLabel="Share profile"
             className="bg-card rounded-2xl border border-border items-center justify-center"
             style={{
               shadowColor: BLUE,
@@ -290,8 +314,9 @@ export default function Profile() {
               shadowOpacity: 0.1,
               shadowRadius: 6,
               elevation: 2,
-              paddingVertical: 8,
+              paddingVertical: 10,
               paddingHorizontal: 14,
+              minHeight: 44,
               flexDirection: "row",
               alignItems: "center",
               gap: 6,
@@ -318,7 +343,7 @@ export default function Profile() {
             <View className="mb-4">
               <Text className="text-body text-muted-foreground mb-3">{statsError}</Text>
               <TouchableOpacity onPress={() => void refreshStats()} className="self-start">
-                <Text style={{ fontSize: 14, fontWeight: "600", color: BLUE }}>Retry</Text>
+                <Text style={{ fontSize: 14, fontWeight: "600", color: BLUE }}>{TRY_AGAIN_LABEL}</Text>
               </TouchableOpacity>
             </View>
           ) : statsLoading ? (
@@ -407,7 +432,7 @@ export default function Profile() {
                   <View className="flex-row items-center justify-between mb-1">
                     <Text className="text-body font-medium text-foreground">{point.month}</Text>
                     <Text style={{ fontSize: 14, fontWeight: "700", color: BLUE }}>
-                      {Math.round(point.winRate * 100)}%
+                      {winRateFractionToPercent(point.winRate)}%
                     </Text>
                   </View>
                   <ProgressBar value={point.wins} max={Math.max(point.totalMatches, 1)} color={BLUE} />
@@ -440,15 +465,26 @@ export default function Profile() {
             <View className="flex-row items-center gap-2">
               <TouchableOpacity
                 onPress={prevMonth}
-                style={{ padding: 6, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.04)" }}
+                hitSlop={HEADER_ICON_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="Previous month"
+                style={{
+                  padding: 8,
+                  borderRadius: 8,
+                  backgroundColor: "rgba(0,0,0,0.04)",
+                  minWidth: 44,
+                  minHeight: 44,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                <LucideIcon name="ChevronLeft" size={16} color="#6b7280" />
+                <LucideIcon name="ChevronLeft" size={16} color={colors.muted} />
               </TouchableOpacity>
               <Text
                 style={{
                   fontSize: 13,
                   fontWeight: "600",
-                  color: "#374151",
+                  color: colors.foreground,
                   minWidth: 110,
                   textAlign: "center",
                 }}
@@ -457,9 +493,20 @@ export default function Profile() {
               </Text>
               <TouchableOpacity
                 onPress={nextMonth}
-                style={{ padding: 6, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.04)" }}
+                hitSlop={HEADER_ICON_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="Next month"
+                style={{
+                  padding: 8,
+                  borderRadius: 8,
+                  backgroundColor: "rgba(0,0,0,0.04)",
+                  minWidth: 44,
+                  minHeight: 44,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                <LucideIcon name="ChevronRight" size={16} color="#6b7280" />
+                <LucideIcon name="ChevronRight" size={16} color={colors.muted} />
               </TouchableOpacity>
             </View>
           </View>
@@ -482,13 +529,15 @@ export default function Profile() {
         >
           <TouchableOpacity
             onPress={() => router.push("/settings")}
-            className="flex-row items-center justify-between py-4 px-4"
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            className="flex-row items-center justify-between py-4 px-4 min-h-[52px]"
           >
             <View className="flex-row items-center gap-3">
-              <LucideIcon name="Settings" size={20} color="#666" />
+              <LucideIcon name="Settings" size={20} color={colors.muted} />
               <Text className="text-body font-medium text-foreground">Settings</Text>
             </View>
-            <LucideIcon name="ChevronRight" size={20} color="#999" />
+            <LucideIcon name="ChevronRight" size={20} color={colors.muted} />
           </TouchableOpacity>
         </View>
       </ScrollView>

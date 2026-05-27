@@ -1,7 +1,10 @@
 import { apiClient } from "./apiClient";
 import { Match } from "../../../types/match";
-import { toApiMatchWritePayload } from "./matchPayload";
-import { normalizeMatch, normalizeMatchList } from "./matchMapper";
+import { toApiMatchWritePayload, type MatchWritePayloadOptions } from "./matchPayload";
+import { normalizeMatch, normalizeMatchList, normalizeExploreMatchList } from "./matchMapper";
+import { normalizeLikeResponse } from "../../utils/matchLike";
+import { setsForMatchWrite } from "../../utils/matchSetsPayload";
+import { AppError } from "./apiErrors";
 import { normalizePaginatedResponse, type PaginatedResponse } from "./pagination";
 import type {
   FinishMatchResponse,
@@ -82,7 +85,10 @@ export const matchService = {
 
     const raw = await apiClient.get<unknown>("/api/matches/explore", { params });
     const paged = normalizePaginatedResponse<unknown>(raw, limit);
-    const items = filterMatchesByStatus(normalizeMatchList(paged.items as unknown[]), status);
+    const items = filterMatchesByStatus(
+      normalizeExploreMatchList(paged.items as unknown[]),
+      status
+    );
     return { ...paged, items };
   },
 
@@ -92,12 +98,22 @@ export const matchService = {
   },
 
   async createMatch(data: CreateMatchInput): Promise<Match> {
-    const raw = await apiClient.post<unknown>("/api/matches", toApiMatchWritePayload(data));
+    const raw = await apiClient.post<unknown>(
+      "/api/matches",
+      toApiMatchWritePayload(data, { forCreate: true })
+    );
     return normalizeMatch(raw);
   },
 
-  async updateMatch(id: string, data: UpdateMatchInput): Promise<Match> {
-    const raw = await apiClient.patch<unknown>(`/api/matches/${id}`, toApiMatchWritePayload(data));
+  async updateMatch(
+    id: string,
+    data: UpdateMatchInput,
+    options?: MatchWritePayloadOptions
+  ): Promise<Match> {
+    const raw = await apiClient.patch<unknown>(
+      `/api/matches/${id}`,
+      toApiMatchWritePayload(data, options)
+    );
     return normalizeMatch(raw);
   },
 
@@ -109,15 +125,60 @@ export const matchService = {
     return await apiClient.post<FinishMatchResponse>(`/api/matches/${id}/finish`, {});
   },
 
+  /**
+   * Saves scores/fields, transitions to LIVE if needed, then POST `/finish`.
+   * Returns authoritative match details after completion.
+   */
+  async completeMatch(id: string, data: UpdateMatchInput): Promise<Match> {
+    const matchId = id.trim();
+    if (!matchId || matchId.startsWith("match-")) {
+      throw new AppError("Invalid match id for completion.", 400, "INVALID_MATCH_ID");
+    }
+    const livePayload: UpdateMatchInput = {
+      ...data,
+      status: "live",
+      sets:
+        data.sets !== undefined ? setsForMatchWrite(data.sets, "live") : data.sets,
+    };
+    await this.updateMatch(matchId, livePayload);
+    await this.finishMatch(matchId);
+    return this.getMatchDetails(matchId);
+  },
+
+  /** SCHEDULED → LIVE (scores optional; backend rejects sets on SCHEDULED only). */
+  async startLiveMatch(id: string, data: UpdateMatchInput): Promise<Match> {
+    const matchId = id.trim();
+    if (!matchId || matchId.startsWith("match-")) {
+      throw new AppError("Invalid match id.", 400, "INVALID_MATCH_ID");
+    }
+    const livePayload: UpdateMatchInput = {
+      ...data,
+      status: "live",
+      sets:
+        data.sets !== undefined ? setsForMatchWrite(data.sets, "live") : data.sets,
+    };
+    return this.updateMatch(matchId, livePayload);
+  },
+
   async getMatchShare(id: string): Promise<MatchShareResponse> {
     return await apiClient.get<MatchShareResponse>(`/api/matches/${id}/share`);
   },
 
   async likeMatch(id: string): Promise<LikeMatchResponse> {
-    return await apiClient.post<LikeMatchResponse>(`/api/matches/${id}/like`, {});
+    const matchId = id.trim();
+    if (!matchId || matchId.startsWith("match-")) {
+      throw new AppError("Invalid match id for like.", 400, "INVALID_MATCH_ID");
+    }
+    const raw = await apiClient.post<unknown>(`/api/matches/${matchId}/like`, {});
+    return normalizeLikeResponse(raw, matchId);
   },
 
   async unlikeMatch(id: string): Promise<LikeMatchResponse> {
-    return await apiClient.delete<LikeMatchResponse>(`/api/matches/${id}/like`);
+    const matchId = id.trim();
+    if (!matchId || matchId.startsWith("match-")) {
+      throw new AppError("Invalid match id for unlike.", 400, "INVALID_MATCH_ID");
+    }
+    const raw = await apiClient.delete<unknown>(`/api/matches/${matchId}/like`);
+    return normalizeLikeResponse(raw, matchId);
   },
 };

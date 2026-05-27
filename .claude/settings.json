@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m json.tool)",
+      "Bash(find /tmp -name \"metro-*\" -o -name \"haste-*\" 2>/dev/null | head -10; find ~/Library/Caches -name \"metro*\" -maxdepth 3 2>/dev/null | head -10)",
+      "Read(//private/tmp/**)",
+      "Read(//Users/rahul/Library/Caches/**)",
+      "Bash(ls ~/Library/Developer/CoreSimulator/Devices/ 2>/dev/null | head -5)",
+      "Read(//Users/rahul/Library/Developer/CoreSimulator/Devices/**)",
+      "Bash(curl -s --max-time 3 http://localhost:8081/status)",
+      "Bash(curl -s --max-time 3 http://localhost:19000/status)",
+      "Bash(curl -s --max-time 3 \"http://localhost:8081/index.bundle?platform=android&dev=true&hot=true&lazy=true&transform.routerRoot=app\" -o /dev/null -w \"%{http_code}\")",
+      "Bash(# Check if Metro has actually picked up our file changes \\(look at file hashes vs cache\\) *)",
+      "Read(//Users/rahul/**)"
+    ]
+  }
+}

@@ -374,6 +374,17 @@ async function main() {
             return { summary: summarizeData(r.data) };
           });
 
+          await runTest("PATCH /api/matches/{id} (finished, no status)", async () => {
+            const r = await request("PATCH", `/api/matches/${createdId}`, {
+              body: {
+                notes: "Post-finish edit within window",
+                sets: [{ setNumber: 1, p1Score: 6, p2Score: 4 }],
+              },
+            });
+            if (!r.ok) throw new Error(r.error);
+            return { summary: "patched finished match without status" };
+          });
+
           await runTest("DELETE /api/matches/{id}", async () => {
             const r = await request("DELETE", `/api/matches/${createdId}`);
             if (!r.ok) throw new Error(r.error);

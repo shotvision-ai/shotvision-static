@@ -4,96 +4,69 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Platform,
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NotificationsScreenLayout } from "~/components/notifications/NotificationsScreenLayout";
 import { Text } from "~/components/ui/text";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import type { InAppNotification } from "~/types/notification";
 import { notificationService } from "../src/services/api/notificationService";
-import { AppError } from "../src/services/api/apiErrors";
+import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErrors";
+import { TRY_AGAIN_LABEL } from "~/components/ui/AsyncListState";
+import { STANDARD_HIT_SLOP } from "../src/utils/touchA11y";
 import { NOTIFICATIONS_API_ENABLED } from "../src/config/featureFlags";
+import { NotificationsUnavailableView } from "~/components/notifications/NotificationsUnavailableView";
+import { useNotificationsList } from "../src/hooks/useNotificationsList";
+import {
+  isNotificationsApiUnavailableError,
+  markNotificationsApiUnavailableForSession,
+} from "../src/utils/notificationsAvailability";
 
 const BLUE = "#2563eb";
 
-/** No API calls — `/api/notifications` is not in API_CONTRACTS.md yet. */
-function NotificationsUnavailable() {
+function NotificationsScreenBody() {
   const insets = useSafeAreaInsets();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
+  const {
+    phase,
+    notifications,
+    isRefreshing,
+    failureUI,
+    isMutating,
+    setIsMutating,
+    setNotifications,
+    load,
+    onRefresh,
+    retry,
+    showInitialLoading,
+  } = useNotificationsList();
 
-  return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
-      <View
-        className="flex-1 items-center justify-center px-8"
-        style={{ paddingTop: 8 + androidTopOffset, paddingBottom: insets.bottom + 24 }}
-      >
-        <LucideIcon name="Bell" size={64} color="#9ca3af" />
-        <Text className="text-h4 font-semibold text-foreground mt-6 mb-2 text-center">
-          Notifications coming soon
-        </Text>
-        <Text className="text-body text-muted-foreground text-center">
-          Alerts aren&apos;t available yet. We&apos;ll turn this on when the notification service
-          is ready.
-        </Text>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-function NotificationsLive() {
-  const insets = useSafeAreaInsets();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
-  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isMutating, setIsMutating] = useState(false);
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
-    try {
-      setError(null);
-      if (!opts?.silent) setIsLoading(true);
-      const list = await notificationService.list();
-      setNotifications(list);
-    } catch (e) {
-      const msg =
-        e instanceof AppError ? e.message : "Could not load notifications. Try again in a moment.";
-      setError(msg);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+  const handleMutationError = useCallback((err: unknown, fallback: string) => {
+    if (isNotificationsApiUnavailableError(err)) {
+      markNotificationsApiUnavailableForSession();
+      return;
     }
+    Alert.alert("Error", getUserFriendlyErrorMessage(err, fallback));
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load({ silent: true });
-    }, [load])
+  const markAsRead = useCallback(
+    async (id: string) => {
+      try {
+        setIsMutating(true);
+        await notificationService.markAsRead(id);
+        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      } catch (e) {
+        handleMutationError(e, "Could not update notification. Please try again.");
+      } finally {
+        setIsMutating(false);
+      }
+    },
+    [handleMutationError, setIsMutating, setNotifications]
   );
-
-  const onRefresh = () => {
-    setIsRefreshing(true);
-    void load({ silent: true });
-  };
-
-  const markAsRead = useCallback(async (id: string) => {
-    try {
-      setIsMutating(true);
-      await notificationService.markAsRead(id);
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-    } catch (e) {
-      const msg =
-        e instanceof AppError ? e.message : "Could not update notification. Please try again.";
-      Alert.alert("Error", msg);
-    } finally {
-      setIsMutating(false);
-    }
-  }, []);
 
   const markAllRead = useCallback(async () => {
     try {
@@ -101,13 +74,15 @@ function NotificationsLive() {
       await notificationService.markAllRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     } catch (e) {
-      const msg =
-        e instanceof AppError ? e.message : "Could not mark all as read. Please try again.";
-      Alert.alert("Error", msg);
+      handleMutationError(e, "Could not mark all as read. Please try again.");
     } finally {
       setIsMutating(false);
     }
-  }, []);
+  }, [handleMutationError, setIsMutating, setNotifications]);
+
+  if (phase === "disabled" || phase === "unavailable") {
+    return <NotificationsUnavailableView />;
+  }
 
   const toggleDeleteMode = () => {
     setDeleteMode((prev) => !prev);
@@ -139,11 +114,9 @@ function NotificationsLive() {
               await Promise.all([...selectedIds].map((id) => notificationService.deleteOne(id)));
               setSelectedIds(new Set());
               setDeleteMode(false);
-              await load({ silent: true });
+              await load({ silent: true, force: true });
             } catch (e) {
-              const msg =
-                e instanceof AppError ? e.message : "Could not delete notifications. Please try again.";
-              Alert.alert("Error", msg);
+              handleMutationError(e, "Could not delete notifications. Please try again.");
             } finally {
               setIsMutating(false);
             }
@@ -165,11 +138,9 @@ function NotificationsLive() {
             await notificationService.deleteAll();
             setDeleteMode(false);
             setSelectedIds(new Set());
-            await load({ silent: true });
+            await load({ silent: true, force: true });
           } catch (e) {
-            const msg =
-              e instanceof AppError ? e.message : "Could not delete notifications. Please try again.";
-            Alert.alert("Error", msg);
+            handleMutationError(e, "Could not delete notifications. Please try again.");
           } finally {
             setIsMutating(false);
           }
@@ -230,11 +201,10 @@ function NotificationsLive() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
-      {/* Header Actions */}
-      <View className="flex-row items-center justify-between px-5 pt-1 pb-2">
+    <View className="flex-1 bg-background">
+      <View className="flex-row items-center justify-between px-5 pt-2 pb-2">
         <View className="flex-row items-center gap-3">
-          {unreadCount > 0 && !deleteMode && (
+          {unreadCount > 0 && !deleteMode && phase === "ready" && (
             <Text className="text-caption text-muted-foreground">{unreadCount} unread</Text>
           )}
           {deleteMode && (
@@ -242,8 +212,14 @@ function NotificationsLive() {
           )}
         </View>
         <View className="flex-row items-center gap-3">
-          {!deleteMode && unreadCount > 0 && (
-            <TouchableOpacity onPress={() => void markAllRead()} disabled={isMutating}>
+          {!deleteMode && unreadCount > 0 && phase === "ready" && (
+            <TouchableOpacity
+              onPress={() => void markAllRead()}
+              disabled={isMutating}
+              hitSlop={STANDARD_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Mark all notifications as read"
+            >
               <Text className="text-caption font-semibold" style={{ color: BLUE }}>
                 Mark all read
               </Text>
@@ -297,10 +273,13 @@ function NotificationsLive() {
                 <Text style={{ fontSize: 13, fontWeight: "600", color: "#6b7280" }}>Cancel</Text>
               </TouchableOpacity>
             </>
-          ) : (
+          ) : phase === "ready" ? (
             <TouchableOpacity
               onPress={toggleDeleteMode}
               disabled={isMutating}
+              hitSlop={STANDARD_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Delete notifications"
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -315,7 +294,7 @@ function NotificationsLive() {
               <LucideIcon name="Trash2" size={14} color="#dc2626" />
               <Text style={{ fontSize: 13, fontWeight: "600", color: "#dc2626" }}>Delete</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       </View>
 
@@ -323,41 +302,43 @@ function NotificationsLive() {
         className="flex-1"
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingTop: 4 + androidTopOffset,
+          paddingTop: 8,
           paddingBottom: 40 + insets.bottom,
           flexGrow: 1,
         }}
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={BLUE} />
+          phase === "error" || phase === "ready" || phase === "empty" ? (
+            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={BLUE} />
+          ) : undefined
         }
         showsVerticalScrollIndicator={false}
       >
-        {isLoading && !isRefreshing ? (
+        {showInitialLoading ? (
           <View className="flex-1 items-center justify-center py-24">
             <ActivityIndicator size="large" color={BLUE} />
             <Text className="text-body text-muted-foreground mt-4">Loading notifications…</Text>
           </View>
-        ) : error ? (
+        ) : phase === "error" && failureUI ? (
           <View className="flex-1 items-center justify-center py-20 px-8">
-            <LucideIcon name="CircleAlert" size={64} color="#dc2626" />
+            <LucideIcon name={failureUI.iconName} size={64} color={failureUI.iconColor} />
             <Text className="text-h4 font-semibold text-foreground mt-6 mb-2 text-center">
-              {"Couldn't load notifications"}
+              {failureUI.title}
             </Text>
-            <Text className="text-body text-muted-foreground text-center mb-6">{error}</Text>
+            <Text className="text-body text-muted-foreground text-center mb-6">{failureUI.detail}</Text>
             <TouchableOpacity
-              onPress={() => void load()}
+              onPress={retry}
               className="bg-primary px-6 py-3 rounded-xl"
               style={{ backgroundColor: BLUE }}
             >
-              <Text className="text-white font-semibold">Try again</Text>
+              <Text className="text-white font-semibold">{TRY_AGAIN_LABEL}</Text>
             </TouchableOpacity>
           </View>
-        ) : notifications.length === 0 ? (
+        ) : phase === "empty" ? (
           <View className="flex-1 items-center justify-center py-20">
             <LucideIcon name="Bell" size={64} color="#9ca3af" />
-            <Text className="text-h4 font-semibold text-foreground mt-6 mb-2">All Caught Up!</Text>
-            <Text className="text-body text-muted-foreground text-center">
-              No notifications here.
+            <Text className="text-h4 font-semibold text-foreground mt-6 mb-2">All caught up</Text>
+            <Text className="text-body text-muted-foreground text-center px-6">
+              You don&apos;t have any notifications right now.
             </Text>
           </View>
         ) : (
@@ -370,6 +351,13 @@ function NotificationsLive() {
                   onPress={() => handlePress(notification)}
                   disabled={isMutating}
                   activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    deleteMode
+                      ? `${isSelected ? "Deselect" : "Select"} notification: ${notification.title}`
+                      : `${notification.read ? "" : "Unread, "}${notification.title}`
+                  }
+                  accessibilityState={{ selected: deleteMode ? isSelected : undefined }}
                   style={{
                     backgroundColor: isSelected
                       ? "rgba(37, 99, 235, 0.06)"
@@ -417,7 +405,7 @@ function NotificationsLive() {
                         }}
                       >
                         <LucideIcon
-                          name={getIconName(notification.type) as any}
+                          name={getIconName(notification.type) as "Bell"}
                           size={20}
                           color={getIconColor(notification.type, notification.read)}
                         />
@@ -477,13 +465,18 @@ function NotificationsLive() {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 export default function Notifications() {
-  if (!NOTIFICATIONS_API_ENABLED) {
-    return <NotificationsUnavailable />;
-  }
-  return <NotificationsLive />;
+  return (
+    <NotificationsScreenLayout>
+      {!NOTIFICATIONS_API_ENABLED ? (
+        <NotificationsUnavailableView />
+      ) : (
+        <NotificationsScreenBody />
+      )}
+    </NotificationsScreenLayout>
+  );
 }

@@ -10,9 +10,8 @@ import {
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as React from "react";
-import { Platform, TouchableOpacity, View, StatusBar as RNStatusBar, InteractionManager } from "react-native";
+import { Platform, TouchableOpacity, View, InteractionManager } from "react-native";
 import { useColorScheme } from "~/lib/useColorScheme";
-import { ThemeToggle } from "~/components/ThemeToggle";
 import { ThemeProvider, useTheme } from "~/theming/ThemeProvider";
 import darkTheme from "~/theming/themes/dark";
 import lightTheme from "~/theming/themes/light";
@@ -55,27 +54,38 @@ function RootContent() {
   });
   const isLoadingFonts = !fontsLoaded && !fontError;
 
-  // Global authentication redirect logic (defer until navigator is ready to avoid REPLACE errors)
+  // Global auth redirects — single navigation path after sign-in (no duplicate replace from login.tsx).
   React.useEffect(() => {
     if (!isHydrated || isAuthLoading || !isColorSchemeLoaded || isLoadingFonts) return;
 
-    const task = InteractionManager.runAfterInteractions(() => {
-      const inAuthGroup =
-        segments[0] === "login" || segments[0] === "otp" || segments[0] === "splash";
+    const inAuthGroup =
+      segments[0] === "login" || segments[0] === "otp" || segments[0] === "splash";
 
-      if (!isAuthenticated && !inAuthGroup) {
+    if (isAuthenticated && inAuthGroup) {
+      // Navigate immediately after sign-in so tabs don't mount with stale unauthenticated fetches.
+      router.replace("/(tabs)/dashboard");
+      return;
+    }
+
+    if (!isAuthenticated && !inAuthGroup) {
+      const task = InteractionManager.runAfterInteractions(() => {
         router.replace("/login");
-      } else if (isAuthenticated && inAuthGroup) {
-        router.replace("/(tabs)/dashboard");
-      }
-    });
-
-    return () => {
-      if (typeof (task as { cancel?: () => void }).cancel === "function") {
-        (task as { cancel: () => void }).cancel();
-      }
-    };
-  }, [isAuthenticated, isAuthLoading, isHydrated, segments, isColorSchemeLoaded, isLoadingFonts, router]);
+      });
+      return () => {
+        if (typeof (task as { cancel?: () => void }).cancel === "function") {
+          (task as { cancel: () => void }).cancel();
+        }
+      };
+    }
+  }, [
+    isAuthenticated,
+    isAuthLoading,
+    isHydrated,
+    segments,
+    isColorSchemeLoaded,
+    isLoadingFonts,
+    router,
+  ]);
 
   const navigationTheme: NavigationTheme = React.useMemo(() => {
     const navigationThemeBase = isDarkColorScheme ? NavigationDarkTheme : NavigationDefaultTheme;
@@ -147,11 +157,9 @@ function RootContent() {
             headerTitleStyle: {
               fontFamily: theme.typography.h2?.fontFamily,
               fontSize: 22,
-              ...(Platform.OS === "android" ? { marginTop: 20 } : {}),
             },
             headerBackTitleVisible: false,
             headerBackVisible: true,
-            headerStatusBarHeight: Platform.OS === "android" ? 54 : undefined,
             headerLeft: ({ canGoBack }) =>
               canGoBack ? (
                 <TouchableOpacity
@@ -162,22 +170,15 @@ function RootContent() {
                     }
                     navigation.navigate("(tabs)" as never);
                   }}
-                  style={{ 
-                    paddingHorizontal: 4, 
-                    paddingVertical: 4,
-                    ...(Platform.OS === "android" ? { marginTop: 20 } : {}),
-                  }}
+                  style={{ paddingHorizontal: 8, paddingVertical: 8, marginLeft: -4 }}
                   accessibilityRole="button"
                   accessibilityLabel="Go back"
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  <LucideIcon name="ChevronLeft" size={22} color={theme.colors.foreground} />
+                  <LucideIcon name="ChevronLeft" size={24} color={theme.colors.foreground} />
                 </TouchableOpacity>
               ) : null,
-            headerRight: () => (
-              <View style={{ paddingRight: 16, ...(Platform.OS === "android" ? { marginTop: 20 } : {}) }}>
-                {/* Placeholder for right actions if needed */}
-              </View>
-            ),
+            headerRight: () => null,
           })}
         >
           <Stack.Screen
@@ -195,9 +196,8 @@ function RootContent() {
           <Stack.Screen
             name="create-match"
             options={{
-              title: "Create Match",
+              headerShown: false,
               presentation: "modal",
-              headerBackVisible: true,
             }}
           />
           <Stack.Screen
@@ -210,22 +210,19 @@ function RootContent() {
           <Stack.Screen
             name="settings"
             options={{
-              title: "Settings",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
             name="edit-profile"
             options={{
-              title: "Edit Profile",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
             name="edit-match/[id]"
             options={{
-              title: "Edit Match",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
@@ -238,22 +235,19 @@ function RootContent() {
           <Stack.Screen
             name="feedback"
             options={{
-              title: "Send Feedback",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
             name="help"
             options={{
-              title: "Get Help",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
             name="terms"
             options={{
-              title: "Terms of Service",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
@@ -266,8 +260,7 @@ function RootContent() {
           <Stack.Screen
             name="notifications"
             options={{
-              title: "Notifications",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
@@ -292,15 +285,13 @@ function RootContent() {
           <Stack.Screen
             name="data-deletion"
             options={{
-              title: "Data Deletion",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
           <Stack.Screen
             name="report-process"
             options={{
-              title: "Report a Match",
-              headerBackVisible: true,
+              headerShown: false,
             }}
           />
         </Stack>

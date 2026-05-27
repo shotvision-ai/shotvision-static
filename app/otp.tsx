@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { View, TextInput, TouchableOpacity, Platform, Alert, ActivityIndicator } from "react-native";
+import { View, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Text } from "~/components/ui/text";
@@ -7,17 +7,19 @@ import { Button } from "~/components/ui/button";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useAuth } from "../src/context/AuthContext";
 import { devLog } from "../src/utils/devLog";
+import { BRAND_BLUE, useAppTheming } from "../src/hooks/useAppTheming";
+import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErrors";
 
-const BLUE = "#2563eb";
+const BLUE = BRAND_BLUE;
 const RESEND_SECONDS = 60;
 
 export default function OTP() {
   const router = useRouter();
+  const { colors } = useAppTheming();
   const params = useLocalSearchParams<{ identifier: string; method: string }>();
   const { identifier, method } = params;
 
   const { loginWithOtp, sendOtp, isLoading: isAuthLoading } = useAuth();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const inputRefs = useRef<Array<TextInput | null>>([]);
   const [timer, setTimer] = useState(RESEND_SECONDS);
@@ -87,7 +89,7 @@ export default function OTP() {
       // Navigation is handled globally in _layout.tsx based on isAuthenticated
     } catch (err: any) {
       devLog.error("[otp] verify failed:", err);
-      setError(err.message || "Invalid or expired verification code");
+      setError(getUserFriendlyErrorMessage(err, "Invalid or expired verification code"));
     } finally {
       setIsVerifying(false);
     }
@@ -107,7 +109,7 @@ export default function OTP() {
       inputRefs.current[0]?.focus();
     } catch (err: any) {
       devLog.error("[otp] resend failed:", err);
-      Alert.alert("Error", err.message || "Failed to resend verification code.");
+      Alert.alert("Error", getUserFriendlyErrorMessage(err, "Failed to resend verification code."));
     } finally {
       setIsResending(false);
     }
@@ -115,7 +117,7 @@ export default function OTP() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <View style={{ flex: 1, paddingHorizontal: 24, justifyContent: "center", paddingTop: androidTopOffset }}>
+      <View style={{ flex: 1, paddingHorizontal: 24, justifyContent: "center" }}>
         {/* Header */}
         <View className="items-center mb-12">
           <View
@@ -161,12 +163,14 @@ export default function OTP() {
                   height: 58,
                   borderRadius: 14,
                   borderWidth: 2,
-                  borderColor: error ? "#ef4444" : digit ? BLUE : "#e5e7eb",
-                  backgroundColor: digit ? "rgba(37, 99, 235, 0.05)" : "#f9fafb",
+                  borderColor: error ? colors.destructive : digit ? BLUE : colors.border,
+                  backgroundColor: digit
+                    ? "rgba(37, 99, 235, 0.12)"
+                    : colors.mutedSurface,
                   fontSize: 24,
                   fontWeight: "700",
                   textAlign: "center",
-                  color: "#1f2937",
+                  color: colors.foreground,
                 }}
               />
             ))}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
 import type { MatchParticipantGender } from "~/types/match";
@@ -8,9 +9,13 @@ import {
   defaultAvatarAccent,
   defaultAvatarBuiltInImage,
 } from "~/lib/defaultAvatars";
+import {
+  normalizeProfileImageUrl,
+  withProfileImageCacheBust,
+} from "~/src/utils/profileImageUrl";
 
 export type ProfileAvatarProps = {
-  /** Remote profile image; when empty, a built-in default is shown */
+  /** Remote profile image; when empty/invalid, a built-in default is shown */
   imageUrl?: string | null;
   /** Current user's chosen default slot (1–16). Omit when showing another user with `fallbackUserId`. */
   preferredAvatarId?: number;
@@ -22,20 +27,61 @@ export type ProfileAvatarProps = {
   withBorder?: boolean;
   /** No shadow ring — for dense layouts (e.g. match cards). */
   variant?: "default" | "plain";
+  /** Changes when avatar selection or remote URL revision updates — busts image cache. */
+  imageDisplayKey?: string;
+  /** Combined display + store revision for remote URL cache busting. */
+  profileImageCacheRevision?: number;
 };
 
-function resolveLocalAvatarId(
-  imageUrl: string | null | undefined,
+export function resolveLocalAvatarId(
   preferredAvatarId: number | undefined,
   fallbackUserId: string | undefined,
   fallbackGender: MatchParticipantGender | undefined
-): number | null {
-  const trimmed = imageUrl?.trim();
-  if (trimmed) return null;
+): number {
+  if (preferredAvatarId != null) {
+    return clampAvatarId(preferredAvatarId);
+  }
   if (fallbackUserId) {
     return avatarIndexFromUserId(fallbackUserId, fallbackGender ?? null);
   }
-  return preferredAvatarId != null ? clampAvatarId(preferredAvatarId) : 1;
+  return 1;
+}
+
+function DefaultAvatarVisual({
+  localId,
+  size,
+  displayKey,
+}: {
+  localId: number;
+  size: number;
+  displayKey?: string;
+}) {
+  const builtIn = defaultAvatarBuiltInImage(localId);
+  if (builtIn) {
+    return (
+      <Image
+        key={displayKey ? `builtin-${displayKey}` : `builtin-${localId}`}
+        source={builtIn}
+        style={{ width: size, height: size }}
+        contentFit="cover"
+        accessibilityLabel="Default profile picture"
+      />
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: defaultAvatarAccent(localId),
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <LucideIcon name="User" size={Math.round(size * 0.45)} color="#ffffff" />
+    </View>
+  );
 }
 
 export function ProfileAvatar({
@@ -46,62 +92,62 @@ export function ProfileAvatar({
   size = 40,
   withBorder = false,
   variant = "default",
+  imageDisplayKey,
+  profileImageCacheRevision = 0,
 }: ProfileAvatarProps) {
-  const trimmed = imageUrl?.trim();
-  const localId = resolveLocalAvatarId(imageUrl, preferredAvatarId, fallbackUserId, fallbackGender);
-  const builtIn =
-    !trimmed && localId != null ? defaultAvatarBuiltInImage(localId) : undefined;
+  const remoteUrl = normalizeProfileImageUrl(imageUrl);
+  const [remoteFailed, setRemoteFailed] = useState(false);
 
-  const inner =
-    trimmed ? (
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          overflow: "hidden",
-        }}
-        className="bg-muted"
-      >
-        <Image
-          source={{ uri: trimmed }}
-          style={{ width: size, height: size }}
-          contentFit="cover"
-          accessibilityLabel="Profile photo"
-        />
-      </View>
-    ) : builtIn ? (
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          overflow: "hidden",
-        }}
-        className="bg-muted"
-      >
-        <Image
-          source={builtIn}
-          style={{ width: size, height: size }}
-          contentFit="cover"
-          accessibilityLabel="Profile photo"
-        />
-      </View>
-    ) : (
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          overflow: "hidden",
-          backgroundColor: defaultAvatarAccent(localId ?? 1),
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <LucideIcon name="User" size={Math.round(size * 0.45)} color="#ffffff" />
-      </View>
-    );
+  useEffect(() => {
+    setRemoteFailed(false);
+  }, [remoteUrl, imageDisplayKey]);
+
+  // Signed-in user's built-in pick (SecureStore) wins over OAuth photo until upload ships.
+  const hasChosenDefault = preferredAvatarId != null;
+  const showRemote = Boolean(remoteUrl) && !remoteFailed && !hasChosenDefault;
+  const localId = resolveLocalAvatarId(preferredAvatarId, fallbackUserId, fallbackGender);
+
+  const remoteUri =
+    remoteUrl && profileImageCacheRevision > 0
+      ? withProfileImageCacheBust(remoteUrl, profileImageCacheRevision)
+      : remoteUrl;
+
+  const inner = showRemote ? (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        overflow: "hidden",
+      }}
+      className="bg-muted"
+    >
+      <Image
+        key={imageDisplayKey ? `remote-${imageDisplayKey}` : `remote-${remoteUri}`}
+        source={{ uri: remoteUri }}
+        style={{ width: size, height: size }}
+        contentFit="cover"
+        accessibilityLabel="Profile photo"
+        onError={() => setRemoteFailed(true)}
+      />
+    </View>
+  ) : (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        overflow: "hidden",
+      }}
+      className="bg-muted"
+    >
+      <DefaultAvatarVisual
+        localId={localId}
+        size={size}
+        displayKey={imageDisplayKey ?? String(localId)}
+      />
+    </View>
+  );
 
   if (variant === "plain") {
     return inner;

@@ -1,15 +1,16 @@
 import { Redirect } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
-import { View, ActivityIndicator } from "react-native";
+import { ScreenLoadingState } from "~/components/ui/AsyncListState";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#2563eb" />
-      </View>
+      <SafeAreaView className="flex-1 bg-background">
+        <ScreenLoadingState message="Starting Shot Vision…" />
+      </SafeAreaView>
     );
   }
 
@@ -19,8 +20,8 @@ export default function Index() {
 
   // Unauthenticated: root layout navigates to /login (avoid duplicate Redirect + replace race)
   return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-      <ActivityIndicator size="large" color="#2563eb" />
-    </View>
+    <SafeAreaView className="flex-1 bg-background">
+      <ScreenLoadingState />
+    </SafeAreaView>
   );
 }

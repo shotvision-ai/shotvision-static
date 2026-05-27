@@ -6,11 +6,50 @@ import { profileService, type UserProfile } from "../services/api/profileService
 import { AppError } from "../services/api/apiErrors";
 import { logShotVisionUi } from "../services/api/apiDebug";
 import { devLog } from "../utils/devLog";
+import { hydrateMatchReportsForUser } from "../services/auth/hydrateMatchReports";
+import {
+  isRetryableColdStartError,
+  type AuthLoginAttemptListener,
+} from "../services/auth/authLoginRequest";
+import {
+  isInvalidSessionProfileError,
+  resetAuthDomainStores,
+} from "../services/auth/clearAuthState";
+import {
+  mergeSessionUserProfile,
+  profileImageUrlChanged,
+} from "../utils/profileImageSync";
+
 const syncToken = (token: string | null) => apiClient.setAccessToken(token);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function applySignedOutState(
+  set: (partial: Partial<AuthState>) => void,
+  reason: SessionInvalidationReason
+): void {
+  resetAuthDomainStores();
+  set({
+    user: null,
+    isLoading: false,
+    isAuthenticating: false,
+    isHydrated: true,
+    otpSession: null,
+    lastInvalidationReason: reason,
+    profileImageRevision: 0,
+  });
+}
 
 interface AuthState {
   user: UserProfile | null;
+  /** Incremented when `user.image` changes — busts expo-image cache for profile photos. */
+  profileImageRevision: number;
+  /** True only during app bootstrap / restoreSession — not during active sign-in. */
   isLoading: boolean;
+  /** True while Google/OTP sign-in is in flight (avoids coupling to bootstrap isLoading). */
+  isAuthenticating: boolean;
   isHydrated: boolean;
   isLoggingOut: boolean;
   otpSession: string | null;
@@ -19,12 +58,20 @@ interface AuthState {
   /** App startup: restore tokens + fetch profile. */
   bootstrap: () => Promise<void>;
   restoreSession: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  refreshUser: (options?: {
+    invalidateOnAuthError?: boolean;
+    swallowError?: boolean;
+  }) => Promise<void>;
+  setUserProfileImage: (image: string | undefined) => void;
 
-  login: (googleResponse: unknown) => Promise<void>;
+  login: (
+    googleResponse: unknown,
+    options?: { onBackendAttempt?: AuthLoginAttemptListener }
+  ) => Promise<void>;
   sendOtp: (identifier: string, method: "email" | "mobile") => Promise<void>;
   loginWithOtp: (identifier: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccountAndSignOut: () => Promise<void>;
 
   /** Called when apiClient refresh fails or 401 cannot be recovered. */
   handleSessionInvalidated: (reason: SessionInvalidationReason) => void;
@@ -34,13 +81,42 @@ async function loadProfileAfterAuth(): Promise<UserProfile> {
   return profileService.getCurrentProfile();
 }
 
+async function loadProfileAfterAuthResilient(): Promise<UserProfile> {
+  try {
+    return await loadProfileAfterAuth();
+  } catch (error) {
+    if (!isRetryableColdStartError(error)) throw error;
+    devLog.warn("[authStore] profile fetch failed during login, retrying once:", error);
+    await sleep(2_000);
+    return loadProfileAfterAuth();
+  }
+}
+
+async function invalidateSessionForProfileError(error: unknown): Promise<void> {
+  if (error instanceof AppError && isInvalidSessionProfileError(error.statusCode)) {
+    await authSession.invalidateSession("unauthorized", syncToken);
+  }
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
+  profileImageRevision: 0,
   isLoading: true,
+  isAuthenticating: false,
   isHydrated: false,
   isLoggingOut: false,
   otpSession: null,
   lastInvalidationReason: null,
+
+  setUserProfileImage: (image: string | undefined) => {
+    const { user, profileImageRevision } = get();
+    if (!user) return;
+    const changed = profileImageUrlChanged(user.image, image);
+    set({
+      user: { ...user, image },
+      profileImageRevision: changed ? profileImageRevision + 1 : profileImageRevision,
+    });
+  },
 
   bootstrap: async () => {
     set({ isLoading: true });
@@ -58,14 +134,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const profile = await loadProfileAfterAuth();
-      set({ user: profile, isLoading: false, isHydrated: true });
+      await hydrateMatchReportsForUser(profile.id);
+      set({ user: profile, isLoading: false, isHydrated: true, lastInvalidationReason: null });
       logShotVisionUi("authStore", `bootstrap ok userId=${profile.id}`);
     } catch (error) {
       devLog.error("[authStore] bootstrap failed:", error);
-      if (error instanceof AppError && error.statusCode === 401) {
-        await authSession.invalidateSession("unauthorized", syncToken);
-      }
+      await invalidateSessionForProfileError(error);
       set({ user: null, isLoading: false, isHydrated: true });
+      resetAuthDomainStores();
     }
   },
 
@@ -78,41 +154,59 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
       const profile = await loadProfileAfterAuth();
-      set({ user: profile, isLoading: false });
+      await hydrateMatchReportsForUser(profile.id);
+      set({ user: profile, isLoading: false, lastInvalidationReason: null });
       logShotVisionUi("authStore", `restoreSession ok userId=${profile.id}`);
     } catch (error) {
       devLog.error("[authStore] restoreSession failed:", error);
-      if (error instanceof AppError && error.statusCode === 401) {
-        await authSession.invalidateSession("unauthorized", syncToken);
-      }
+      await invalidateSessionForProfileError(error);
       set({ user: null, isLoading: false });
+      resetAuthDomainStores();
     }
   },
 
-  refreshUser: async () => {
-    const { user } = get();
+  refreshUser: async (options) => {
+    const { user, profileImageRevision } = get();
     if (!user) return;
     try {
-      const profile = await loadProfileAfterAuth();
-      set({ user: profile });
+      const incoming = await loadProfileAfterAuth();
+      const merged = mergeSessionUserProfile(user, incoming);
+      const imageChanged = profileImageUrlChanged(user.image, merged.image);
+      set({
+        user: merged,
+        profileImageRevision: imageChanged ? profileImageRevision + 1 : profileImageRevision,
+      });
     } catch (error) {
-      if (error instanceof AppError && error.statusCode === 401) {
+      devLog.warn("[authStore] refreshUser failed:", error);
+      if (
+        error instanceof AppError &&
+        isInvalidSessionProfileError(error.statusCode) &&
+        options?.invalidateOnAuthError !== false
+      ) {
         get().handleSessionInvalidated("unauthorized");
+      }
+      if (options?.swallowError) {
+        return;
       }
       throw error;
     }
   },
 
-  login: async (googleResponse: unknown) => {
-    set({ isLoading: true });
+  login: async (googleResponse, options) => {
+    if (get().isAuthenticating) return;
+
+    set({ isAuthenticating: true, lastInvalidationReason: null });
     try {
-      await authService.loginWithGoogle(googleResponse);
-      const profile = await loadProfileAfterAuth();
-      set({ user: profile, isLoading: false, lastInvalidationReason: null });
+      await authService.loginWithGoogle(googleResponse, {
+        onBackendAttempt: options?.onBackendAttempt,
+      });
+      const profile = await loadProfileAfterAuthResilient();
+      await hydrateMatchReportsForUser(profile.id);
+      set({ user: profile, isAuthenticating: false, lastInvalidationReason: null });
       logShotVisionUi("authStore", `login google ok userId=${profile.id}`);
     } catch (error) {
       devLog.error("[authStore] login failed:", error);
-      set({ user: null, isLoading: false });
+      set({ user: null, isAuthenticating: false });
       throw error;
     }
   },
@@ -131,34 +225,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new AppError("Please use the link sent to your email to log in.", 400, "EMAIL_LINK_REQUIRED");
     }
 
-    set({ isLoading: true });
+    set({ isAuthenticating: true, lastInvalidationReason: null });
     try {
       await authService.verifyOtp(otpSession, otp);
       const profile = await loadProfileAfterAuth();
-      set({ user: profile, isLoading: false, otpSession: null, lastInvalidationReason: null });
+      await hydrateMatchReportsForUser(profile.id);
+      set({ user: profile, isAuthenticating: false, otpSession: null, lastInvalidationReason: null });
       logShotVisionUi("authStore", `login otp ok userId=${profile.id}`);
     } catch (error) {
       devLog.error("[authStore] OTP login failed:", error);
-      set({ user: null, isLoading: false });
+      set({ user: null, isAuthenticating: false });
       throw error;
     }
   },
 
   logout: async () => {
     if (get().isLoggingOut) return;
-    set({ isLoggingOut: true, isLoading: true });
+    set({ isLoggingOut: true });
     try {
       await authService.logout();
-      set({
-        user: null,
-        isLoading: false,
-        otpSession: null,
-        lastInvalidationReason: "logout",
-      });
+      applySignedOutState(set, "logout");
     } catch (error) {
       devLog.error("[authStore] logout failed:", error);
-      await authSession.invalidateSession("logout", syncToken);
-      set({ user: null, isLoading: false, otpSession: null });
+      applySignedOutState(set, "logout");
+      throw error;
+    } finally {
+      set({ isLoggingOut: false });
+    }
+  },
+
+  deleteAccountAndSignOut: async () => {
+    if (get().isLoggingOut) return;
+    set({ isLoggingOut: true });
+    try {
+      await profileService.deleteAccount();
+      await authService.logoutAfterAccountDeletion();
+      applySignedOutState(set, "account_deleted");
+    } catch (error) {
+      devLog.error("[authStore] deleteAccountAndSignOut failed:", error);
+      throw error;
     } finally {
       set({ isLoggingOut: false });
     }
@@ -166,12 +271,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   handleSessionInvalidated: (reason: SessionInvalidationReason) => {
     if (get().isLoggingOut) return;
-    set({
-      user: null,
-      isLoading: false,
-      otpSession: null,
-      lastInvalidationReason: reason,
-    });
+    applySignedOutState(set, reason);
   },
 }));
 

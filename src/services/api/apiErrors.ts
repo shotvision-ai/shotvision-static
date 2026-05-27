@@ -1,4 +1,5 @@
 import { ApiErrorDetail } from "./apiTypes";
+import { FetchTimeoutError } from "./fetchWithTimeout";
 
 export class AppError extends Error {
   public statusCode: number;
@@ -32,6 +33,19 @@ export const handleApiError = (error: unknown, correlationId?: string): never =>
     throw error;
   }
 
+  // Our own timeout sentinel — thrown by fetchWithTimeout when the timer fires.
+  // Must be checked before the TypeError branch: React Native maps AbortSignal aborts
+  // to `TypeError: "network request failed"`, which would be misclassified as NETWORK_FAILURE.
+  if (error instanceof FetchTimeoutError) {
+    throw new AppError(
+      "The server is taking longer than expected to respond. If this is your first sign-in in a while, the backend may still be starting — try again in a moment.",
+      408,
+      "TIMEOUT",
+      undefined,
+      correlationId
+    );
+  }
+
   const message = error instanceof Error ? error.message : String(error);
 
   const isAbort =
@@ -42,7 +56,7 @@ export const handleApiError = (error: unknown, correlationId?: string): never =>
 
   if (isAbort) {
     throw new AppError(
-      "The server is taking too long to respond. Check your connection and try again.",
+      "The server is taking longer than expected to respond. If this is your first sign-in in a while, the backend may still be starting — try again in a moment.",
       408,
       "TIMEOUT",
       undefined,

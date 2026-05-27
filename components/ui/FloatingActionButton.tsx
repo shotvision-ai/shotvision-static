@@ -34,6 +34,9 @@ export function FloatingActionButton() {
         onPress={() => router.push("/create-match")}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
+        accessibilityRole="button"
+        accessibilityLabel="Create match"
+        accessibilityHint="Opens the create match form"
         style={{
           width: 56,
           height: 56,

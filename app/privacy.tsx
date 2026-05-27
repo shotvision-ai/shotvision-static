@@ -1,5 +1,5 @@
 import React from "react";
-import { View, ScrollView, Platform, TouchableOpacity, Linking } from "react-native";
+import { View, ScrollView, TouchableOpacity, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "~/components/ui/text";
 import LucideIcon from "~/lib/icons/LucideIcon";
@@ -7,8 +7,6 @@ import * as WebBrowser from "expo-web-browser";
 import { PRIVACY_POLICY_URL } from "../src/constants/legalUrls";
 
 export default function Privacy() {
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
-
   const handleOpenPolicy = async () => {
     await WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL);
   };
@@ -19,7 +17,7 @@ export default function Privacy() {
         className="flex-1"
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingTop: 40 + androidTopOffset,
+          paddingTop: 40,
           paddingBottom: 60,
           alignItems: "center",
           justifyContent: "center",

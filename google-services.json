@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "775772604906-dtsj9ef61j39g3touhgm279ogj0pkjf6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.shotvision.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "775772604906-oarfgmtjjs18vfheu6ls8giupq8egp0g.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

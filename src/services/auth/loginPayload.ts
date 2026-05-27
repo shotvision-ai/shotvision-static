@@ -1,3 +1,4 @@
+import { coalesceProfileImageUrl } from "../../utils/profileImageUrl";
 import { AppError } from "../api/apiErrors";
 
 /** Backend login envelope after `body.data` unwrap (ShotVision JWTs only — not Firebase). */
@@ -37,16 +38,12 @@ export function normalizeLoginPayload(raw: unknown): LoginResponse {
       id: String(u.userId ?? u.id ?? ""),
       email: String(u.email ?? ""),
       name: String(u.name ?? u.displayName ?? ""),
-      image:
-        typeof u.profileImage === "string"
-          ? u.profileImage
-          : typeof u.image === "string"
-            ? u.image
-            : typeof u.photoURL === "string"
-              ? u.photoURL
-              : typeof u.picture === "string"
-                ? u.picture
-                : undefined,
+      image: coalesceProfileImageUrl(
+        typeof u.profileImage === "string" ? u.profileImage : undefined,
+        typeof u.image === "string" ? u.image : undefined,
+        typeof u.photoURL === "string" ? u.photoURL : undefined,
+        typeof u.picture === "string" ? u.picture : undefined
+      ),
     };
   } else {
     user = { id: "", email: "", name: "" };
