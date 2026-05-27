@@ -59,7 +59,11 @@ function RootContent() {
     if (!isHydrated || isAuthLoading || !isColorSchemeLoaded || isLoadingFonts) return;
 
     const inAuthGroup =
-      segments[0] === "login" || segments[0] === "otp" || segments[0] === "splash";
+      segments[0] === "login" ||
+      segments[0] === "otp" ||
+      segments[0] === "splash" ||
+      // @ts-expect-error expo-router types don't include dynamic nested groups
+      segments[0] === "auth";
 
     if (isAuthenticated && inAuthGroup) {
       // Navigate immediately after sign-in so tabs don't mount with stale unauthenticated fetches.
@@ -271,6 +275,12 @@ function RootContent() {
           />
           <Stack.Screen
             name="login"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="auth/email-link"
             options={{
               headerShown: false,
             }}

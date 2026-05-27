@@ -1,29 +1,14 @@
-import type { UserProfile } from "../services/api/profileService";
-import { coalesceProfileImageUrl } from "./profileImageUrl";
-
 /**
- * Merge a fresh `/api/users/me` profile into the session user without dropping
- * fields the GET omitted (e.g. image during replication lag).
+ * @deprecated Import from `profileSessionMerge` instead.
+ * Re-exported for existing imports.
  */
-export function mergeSessionUserProfile(
-  existing: UserProfile,
-  incoming: UserProfile
-): UserProfile {
-  const image =
-    coalesceProfileImageUrl(incoming.image) ??
-    coalesceProfileImageUrl(existing.image) ??
-    existing.image;
+export {
+  mergeSessionUserProfile,
+  coerceProfileText,
+  profileFieldsSnapshot,
+} from "./profileSessionMerge";
 
-  return {
-    ...existing,
-    ...incoming,
-    id: existing.id,
-    email: existing.email || incoming.email,
-    image,
-    bio: incoming.bio !== undefined ? incoming.bio : existing.bio,
-    location: incoming.location !== undefined ? incoming.location : existing.location,
-  };
-}
+import { coalesceProfileImageUrl } from "./profileImageUrl";
 
 /** True when the remote profile image URL changed (needs cache bust / re-render). */
 export function profileImageUrlChanged(

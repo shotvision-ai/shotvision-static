@@ -8,6 +8,7 @@ import { useMatchVisibilityStore } from "../../stores/matchVisibilityStore";
 import { useMatchReportStore } from "../../stores/matchReportStore";
 import { useMatchOwnershipStore } from "../../stores/matchOwnershipStore";
 import { resetMatchOwnershipSession } from "../../utils/matchOwnership";
+import { clearPendingEmailForLink } from "./emailLinkStorage";
 
 const syncAccessToken = (token: string | null) => apiClient.setAccessToken(token);
 
@@ -62,6 +63,7 @@ export async function performFullSignOut(options: FullSignOutOptions = {}): Prom
     }
   }
 
+  await clearPendingEmailForLink();
   await signOutIdentityProviders({ revokeGoogleAccess });
   await authSession.invalidateSession(reason, syncAccessToken);
   // Domain stores are cleared via authSession → authStore.handleSessionInvalidated,
@@ -70,6 +72,7 @@ export async function performFullSignOut(options: FullSignOutOptions = {}): Prom
 
 /** After a failed login when Firebase may already be signed in. */
 export async function rollbackFailedLoginAttempt(): Promise<void> {
+  await clearPendingEmailForLink();
   await signOutIdentityProviders();
   await authSession.invalidateSession("manual", syncAccessToken);
 }

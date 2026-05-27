@@ -6,6 +6,7 @@ import { normalizeLikeResponse } from "../../utils/matchLike";
 import { setsForMatchWrite } from "../../utils/matchSetsPayload";
 import { AppError } from "./apiErrors";
 import { normalizePaginatedResponse, type PaginatedResponse } from "./pagination";
+import { devLog } from "../../utils/devLog";
 import type {
   FinishMatchResponse,
   LikeMatchResponse,
@@ -78,18 +79,52 @@ export const matchService = {
     limit: number = 10,
     status: MatchStatusFilter = "all"
   ): Promise<PaginatedResponse<Match>> {
-    const params: Record<string, string> = {
-      page: String(Math.max(0, page - 1)),
-      size: String(limit),
-    };
+    const startPage = Math.max(1, page);
+    const targetSize = Math.max(1, limit);
+    const maxScanPages = status === "all" ? 1 : 6;
 
-    const raw = await apiClient.get<unknown>("/api/matches/explore", { params });
-    const paged = normalizePaginatedResponse<unknown>(raw, limit);
-    const items = filterMatchesByStatus(
-      normalizeExploreMatchList(paged.items as unknown[]),
-      status
-    );
-    return { ...paged, items };
+    let currentPage = startPage;
+    let scanned = 0;
+    let hasNext = true;
+    let total = 0;
+    let totalPages = 0;
+    let lastPage = startPage;
+    const collected: Match[] = [];
+
+    while (hasNext && scanned < maxScanPages && collected.length < targetSize) {
+      const params: Record<string, string> = {
+        page: String(currentPage - 1),
+        size: String(targetSize),
+      };
+      const raw = await apiClient.get<unknown>("/api/matches/explore", { params });
+      const paged = normalizePaginatedResponse<unknown>(raw, targetSize);
+      const mapped = normalizeExploreMatchList(paged.items as unknown[]);
+      const filtered = filterMatchesByStatus(mapped, status);
+
+      collected.push(...filtered);
+      hasNext =
+        typeof paged.hasNext === "boolean" ? paged.hasNext : paged.page < paged.totalPages;
+      total = paged.total;
+      totalPages = paged.totalPages;
+      lastPage = paged.page;
+      currentPage = paged.page + 1;
+      scanned += 1;
+
+      if (__DEV__) {
+        devLog.info(
+          `[explore:get] reqPage=${paged.page} raw=${paged.items.length} mapped=${mapped.length} filtered(${status})=${filtered.length} collected=${collected.length} hasNext=${hasNext}`
+        );
+      }
+    }
+
+    return {
+      items: collected.slice(0, targetSize),
+      page: lastPage,
+      totalPages,
+      total,
+      limit: targetSize,
+      hasNext,
+    };
   },
 
   async getMatchDetails(id: string): Promise<Match> {
@@ -98,11 +133,23 @@ export const matchService = {
   },
 
   async createMatch(data: CreateMatchInput): Promise<Match> {
-    const raw = await apiClient.post<unknown>(
-      "/api/matches",
-      toApiMatchWritePayload(data, { forCreate: true })
-    );
-    return normalizeMatch(raw);
+    const payload = toApiMatchWritePayload(data, { forCreate: true });
+    if (__DEV__) {
+      devLog.info("[match:create] payload", {
+        status: payload.status,
+        isPublic: payload.isPublic,
+      });
+    }
+    const raw = await apiClient.post<unknown>("/api/matches", payload);
+    const created = normalizeMatch(raw);
+    if (__DEV__) {
+      devLog.info("[match:create] response", {
+        id: created.id,
+        status: created.status,
+        isPublic: created.isPublic,
+      });
+    }
+    return created;
   },
 
   async updateMatch(
@@ -169,8 +216,15 @@ export const matchService = {
     if (!matchId || matchId.startsWith("match-")) {
       throw new AppError("Invalid match id for like.", 400, "INVALID_MATCH_ID");
     }
+    devLog.info("[like:api] POST /api/matches/{id}/like", { matchId });
     const raw = await apiClient.post<unknown>(`/api/matches/${matchId}/like`, {});
-    return normalizeLikeResponse(raw, matchId);
+    const result = normalizeLikeResponse(raw, matchId);
+    devLog.info("[like:api] POST response", {
+      matchId,
+      likesCount: result.likesCount,
+      likedByMe: result.likedByMe,
+    });
+    return result;
   },
 
   async unlikeMatch(id: string): Promise<LikeMatchResponse> {
@@ -178,7 +232,14 @@ export const matchService = {
     if (!matchId || matchId.startsWith("match-")) {
       throw new AppError("Invalid match id for unlike.", 400, "INVALID_MATCH_ID");
     }
+    devLog.info("[like:api] DELETE /api/matches/{id}/like", { matchId });
     const raw = await apiClient.delete<unknown>(`/api/matches/${matchId}/like`);
-    return normalizeLikeResponse(raw, matchId);
+    const result = normalizeLikeResponse(raw, matchId);
+    devLog.info("[like:api] DELETE response", {
+      matchId,
+      likesCount: result.likesCount,
+      likedByMe: result.likedByMe,
+    });
+    return result;
   },
 };

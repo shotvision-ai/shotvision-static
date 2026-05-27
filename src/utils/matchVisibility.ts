@@ -71,19 +71,27 @@ export function seedMatchVisibilityFromMatch(match: Match, options?: { markExplo
 }
 
 /**
- * After a fresh API fetch, update the visibility store from the authoritative server values.
- * This prevents stale local snapshots (e.g. set at create-time) from permanently overriding
- * what the server actually has, which would cause the visibility chip to show wrong state.
- * Only updates entries that already exist in the store — doesn't seed brand-new entries.
+ * Sync visibility snapshots from authoritative list/detail API rows.
+ * Explore rows are normalized with `isPublic: true`; my-matches rows use server `isPublic`.
  */
 export function reconcileVisibilityFromApiItems(matches: Match[]): void {
   const state = useMatchVisibilityStore.getState();
   for (const m of matches) {
     const id = m.id.trim();
     if (!id) continue;
-    const existing = state.overrides[id];
-    if (existing) {
-      state.setSnapshot(id, { isPublic: Boolean(m.isPublic) });
-    }
+    state.setSnapshot(id, { isPublic: Boolean(m.isPublic) });
+  }
+}
+
+/**
+ * GET `/api/matches/explore` only returns public matches — force snapshots so stale
+ * private flags cannot suppress feed rows on the next pipeline pass.
+ */
+export function reconcileExploreApiVisibility(exploreApiMatches: Match[]): void {
+  const state = useMatchVisibilityStore.getState();
+  for (const m of exploreApiMatches) {
+    const id = m.id.trim();
+    if (!id) continue;
+    state.setSnapshot(id, { isPublic: true });
   }
 }

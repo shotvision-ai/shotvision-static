@@ -6,6 +6,8 @@ import {
   getMyMatchesCachedForExplore,
 } from "./matchOwnership";
 import { getMatchVisibilitySnapshot } from "../stores/matchVisibilityStore";
+import { isPublicForExploreSupplement } from "./explorePublicSync";
+import { devLog } from "./devLog";
 
 function matchesExploreStatusFilter(match: Match, status: MatchStatusFilter): boolean {
   if (status === "all") return true;
@@ -16,23 +18,38 @@ function sortByMatchDateDesc(a: Match, b: Match): number {
   return new Date(b.matchDate).getTime() - new Date(a.matchDate).getTime();
 }
 
-/** Public on server per GET `/api/matches/my` (never use stale visibility overrides here). */
-function isPublicOnMyMatchesApi(m: Match): boolean {
-  return Boolean(m.isPublic);
-}
-
 /**
- * Hide rows the owner explicitly made private locally (explore API may lag after toggle).
- * Do not filter by `match.isPublic` alone — explore DTOs omit the field before normalization.
+ * Final Explore feed filter.
+ * Rows returned by GET `/api/matches/explore` are public by construction — never hide them
+ * because of a stale local visibility snapshot (common after create/toggle lag).
+ * Only suppress supplemented owner rows the user explicitly marked private.
  */
-export function filterExploreFeedMatches(items: Match[]): Match[] {
-  return items.filter((m) => {
+export function filterExploreFeedMatches(
+  items: Match[],
+  exploreApiIds: ReadonlySet<string>
+): Match[] {
+  let suppressedPrivate = 0;
+  let suppressedMissingId = 0;
+  const out = items.filter((m) => {
     const id = m.id.trim();
-    if (!id) return false;
+    if (!id) {
+      suppressedMissingId += 1;
+      return false;
+    }
+    if (exploreApiIds.has(id)) return true;
     const snap = getMatchVisibilitySnapshot(id);
-    if (snap && !snap.isPublic) return false;
+    if (snap && !snap.isPublic) {
+      suppressedPrivate += 1;
+      return false;
+    }
     return true;
   });
+  if (__DEV__ && (suppressedPrivate > 0 || suppressedMissingId > 0)) {
+    devLog.info(
+      `[explore:filter] kept=${out.length} suppressedPrivate=${suppressedPrivate} missingId=${suppressedMissingId}`
+    );
+  }
+  return out;
 }
 
 /** Stable unique list for FlatList (supplement + explore API can overlap). */
@@ -68,15 +85,20 @@ export async function supplementExploreWithViewerPublicMatches(
   if (!myItems) return exploreItems;
 
   const exploreIds = new Set(exploreItems.map((m) => m.id.trim()).filter(Boolean));
-  const missing = applyMatchOwnershipList(
-    myItems.filter(
-      (m) =>
-        Boolean(m.id?.trim()) &&
-        isPublicOnMyMatchesApi(m) &&
-        matchesExploreStatusFilter(m, status) &&
-        !exploreIds.has(m.id.trim())
-    )
-  ).sort(sortByMatchDateDesc);
+  const candidates = myItems.filter(
+    (m) =>
+      Boolean(m.id?.trim()) &&
+      isPublicForExploreSupplement(m) &&
+      matchesExploreStatusFilter(m, status) &&
+      !exploreIds.has(m.id.trim())
+  );
+  const missing = applyMatchOwnershipList(candidates).sort(sortByMatchDateDesc);
+
+  if (__DEV__ && missing.length > 0) {
+    devLog.info(
+      `[explore:supplement] added=${missing.length} fromMy=${myItems.length} exploreApi=${exploreItems.length}`
+    );
+  }
 
   if (missing.length === 0) return exploreItems;
 

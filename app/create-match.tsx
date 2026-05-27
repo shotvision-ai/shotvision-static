@@ -169,10 +169,18 @@ export default function CreateMatch() {
         recordMatchOwnership(created.id, ownerId);
       }
 
-      // isPublic: prefer the API response; fall back to the user's intent (isPublic state).
+      const resolvedPublic = Boolean(created.isPublic || isPublic);
+      if (__DEV__) {
+        devLog.info("[create-match] visibility", {
+          userIntent: isPublic,
+          apiIsPublic: created.isPublic,
+          resolvedPublic,
+          matchId: created.id,
+        });
+      }
       seedMatchVisibilityFromMatch({
         ...created,
-        isPublic: Boolean(created.isPublic || isPublic),
+        isPublic: resolvedPublic,
       });
       invalidateMyMatchesExploreCache();
       useMatchVisibilityStore.getState().markAllListsStale();

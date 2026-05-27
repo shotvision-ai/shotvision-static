@@ -12,6 +12,7 @@ import { useMatches } from "../../src/hooks/useMatches";
 import { MatchStatusFilter } from "../../src/services/api/matchService";
 import { useAuth } from "../../src/context/AuthContext";
 import { useMatchVisibilityStore } from "../../src/stores/matchVisibilityStore";
+import { useMatchLikeStore } from "../../src/stores/matchLikeStore";
 
 function exploreFilterLabel(filter: MatchStatusFilter): string {
   switch (filter) {
@@ -37,22 +38,26 @@ export default function Explore() {
     status: quickFilter,
     enabled: !!user,
   });
+  const likeRevision = useMatchLikeStore((s) => s.revision);
 
   useFocusEffect(
     useCallback(() => {
-      const { exploreStale, clearExploreStale, myMatchesStale, clearMyMatchesStale } =
+      const { exploreStale, clearExploreStale, myMatchesStale, clearMyMatchesStale, markAllListsStale } =
         useMatchVisibilityStore.getState();
 
       if (!exploreStale && !myMatchesStale) return;
 
-      if (exploreStale) {
-        clearExploreStale();
-        // Refresh re-syncs GET /api/matches/my (force) and supplements Explore on page 1.
-        refresh();
-      }
-      if (myMatchesStale) {
-        clearMyMatchesStale();
-      }
+      void (async () => {
+        // My Matches changes (create public match, visibility toggle) require a fresh
+        // ownership sync + explore supplement — not just clearing the dashboard flag.
+        const ok = await refresh();
+        if (ok) {
+          clearExploreStale();
+          clearMyMatchesStale();
+        } else {
+          markAllListsStale();
+        }
+      })();
     }, [refresh])
   );
 
@@ -92,7 +97,9 @@ export default function Explore() {
         <ListErrorState
           title="Couldn't load explore matches"
           message={error}
-          onRetry={refresh}
+          onRetry={() => {
+            void refresh();
+          }}
           style={emptyContainerStyle}
         />
       );
@@ -148,7 +155,7 @@ export default function Explore() {
     <SafeAreaView className="flex-1 bg-background" edges={["bottom", "left", "right"]}>
       <FlatList
         data={matches}
-        extraData={`${quickFilter}-${isRefreshing}-${matches.length}`}
+        extraData={`${quickFilter}-${isRefreshing}-${matches.length}-${likeRevision}`}
         renderItem={({ item }) => <PublicMatchCard match={item} />}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeader}
@@ -159,7 +166,9 @@ export default function Explore() {
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={refresh}
+            onRefresh={() => {
+              void refresh();
+            }}
             tintColor={theme.colors.primary}
           />
         }

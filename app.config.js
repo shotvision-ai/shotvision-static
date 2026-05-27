@@ -64,9 +64,19 @@ function iosUrlSchemeFromWebClientId(webClientId) {
   return `com.googleusercontent.apps.${idPart}`;
 }
 
+/** Android redirect URI scheme for in-app browser OAuth (reverse client id). */
+function androidUrlSchemeFromAndroidClientId(androidClientId) {
+  if (!androidClientId || typeof androidClientId !== "string") return undefined;
+  const idPart = androidClientId.replace(/\.apps\.googleusercontent\.com\s*$/i, "");
+  return `com.googleusercontent.apps.${idPart}`;
+}
+
 const webClientIdForPlugin =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || gsOAuth.web || "";
 const googleSignInIosUrlScheme = iosUrlSchemeFromWebClientId(webClientIdForPlugin);
+const androidBrowserOauthScheme = androidUrlSchemeFromAndroidClientId(
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || gsOAuth.android || ""
+);
 
 const plugins = [
   "expo-dev-client",
@@ -98,7 +108,7 @@ plugins.push(
 module.exports = {
   name: "ShotVision",
   slug: "shotvision",
-  version: "5.0.9",
+  version: "5.0.10",
   scheme: "shotvision",
 
   /** Passed to the app at runtime (see src/config/googleOAuth.ts). Env overrides google-services defaults. */
@@ -137,14 +147,54 @@ module.exports = {
 
   ios: {
     supportsTablet: true,
-    buildNumber: "9",
+    buildNumber: "10",
     bundleIdentifier: "com.shotvision.app",
   },
 
   android: {
     package: "com.shotvision.app",
     ...(googleServicesFile ? { googleServicesFile } : {}),
-    versionCode: 9,
+    versionCode: 10,
+
+    intentFilters: [
+      {
+        action: "VIEW",
+        autoVerify: false,
+        data: [
+          {
+            scheme: "https",
+            host: "shotvision-c677b.firebaseapp.com",
+            pathPrefix: "/",
+          },
+        ],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+      // Google browser OAuth redirect (AuthSession) on Android emulators.
+      // Must match `com.googleusercontent.apps.<ANDROID_CLIENT_ID>:/oauthredirect`.
+      ...(androidBrowserOauthScheme
+        ? [
+            {
+              action: "VIEW",
+              data: [
+                {
+                  scheme: androidBrowserOauthScheme,
+                  pathPrefix: "/oauthredirect",
+                },
+              ],
+              category: ["BROWSABLE", "DEFAULT"],
+            },
+          ]
+        : []),
+      {
+        action: "VIEW",
+        data: [
+          {
+            scheme: "shotvision",
+          },
+        ],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+    ],
 
     adaptiveIcon: {
       foregroundImage: "./assets/images/app-icon.png",
