@@ -4,10 +4,14 @@ import {
   User,
   PhoneAuthProvider,
   sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
 } from "firebase/auth";
 import { auth } from "../../config/firebase";
+import { buildEmailLinkActionCodeSettings } from "../../config/emailLinkAuth";
 import { isFirebaseAuthLikeError, toFirebaseAuthAppError } from "./firebaseAuthErrors";
 import { devLog } from "../../utils/devLog";
+import { AppError } from "../api/apiErrors";
 
 export interface FirebaseAuthResult {
   firebaseToken: string;
@@ -46,28 +50,61 @@ export const firebaseAuthService = {
   },
 
   /**
-   * Sends a sign-in link to the provided email address.
+   * Sends a passwordless sign-in link (Firebase Email Link Authentication).
    */
   async sendEmailLink(email: string): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
+      throw new AppError("Enter a valid email address.", 400, "INVALID_EMAIL");
+    }
     try {
-      const actionCodeSettings = {
-        // This URL must be whitelisted in the Firebase Console (Authentication > Settings > Authorized domains)
-        url: "https://shotvision-c677b.firebaseapp.com/finishSignUp",
-        handleCodeInApp: true,
-        iOS: {
-          bundleId: "com.shotvision.app",
-        },
-        android: {
-          packageName: "com.shotvision.app",
-          installApp: true,
-          minimumVersion: "12",
-        },
-        dynamicLinkDomain: "shotvision.page.link",
-      };
-
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      const actionCodeSettings = buildEmailLinkActionCodeSettings();
+      devLog.info("[firebase] sendEmailLink", {
+        email: normalized.replace(/(.{2}).+(@.+)/, "$1***$2"),
+        continueUrl: actionCodeSettings.url,
+      });
+      await sendSignInLinkToEmail(auth, normalized, actionCodeSettings);
     } catch (error) {
       devLog.error("[firebase] sendEmailLink failed:", error);
+      if (isFirebaseAuthLikeError(error)) {
+        throw toFirebaseAuthAppError(error);
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Completes Firebase sign-in from the link in the user's email.
+   */
+  async signInWithEmailLink(email: string, emailLink: string): Promise<FirebaseAuthResult> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const link = emailLink.trim();
+    if (!normalizedEmail || !link) {
+      throw new AppError("Missing email or sign-in link.", 400, "INVALID_EMAIL_LINK");
+    }
+    try {
+      if (!isSignInWithEmailLink(auth, link)) {
+        throw new AppError(
+          "This sign-in link is invalid or has expired. Request a new link from the login screen.",
+          400,
+          "INVALID_EMAIL_LINK"
+        );
+      }
+      const userCredential = await signInWithEmailLink(auth, normalizedEmail, link);
+      const firebaseToken = await userCredential.user.getIdToken();
+      devLog.info("[firebase] email link sign-in ok", {
+        uid: userCredential.user.uid,
+      });
+      return {
+        firebaseToken,
+        user: userCredential.user,
+      };
+    } catch (error) {
+      devLog.error("[firebase] signInWithEmailLink failed:", error);
+      if (error instanceof AppError) throw error;
+      if (isFirebaseAuthLikeError(error)) {
+        throw toFirebaseAuthAppError(error);
+      }
       throw error;
     }
   },

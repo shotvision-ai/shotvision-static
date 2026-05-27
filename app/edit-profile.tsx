@@ -39,7 +39,8 @@ export default function EditProfile() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { theme } = useTheme();
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
+  const applyUserProfileUpdate = useAuthStore((s) => s.applyUserProfileUpdate);
   const { preferredAvatarId, setPreferredAvatarId, useBuiltInAvatar, displayRevision } =
     useDefaultAvatar();
   const profileImageRevision = useAuthStore((s) => s.profileImageRevision);
@@ -83,9 +84,10 @@ export default function EditProfile() {
         location: location.trim() || undefined,
       };
 
-      const updated = await profileService.updateProfile(patch, user);
+      devLog.info("[edit-profile] save", { patch });
 
-      useAuthStore.setState({ user: updated });
+      const updated = await profileService.updateProfile(patch, user);
+      applyUserProfileUpdate(updated);
 
       if (!isMountedRef.current) return;
 
@@ -95,8 +97,6 @@ export default function EditProfile() {
         if (!isMountedRef.current) return;
         Alert.alert("Success", "Profile updated successfully!");
       });
-
-      void refreshUser({ invalidateOnAuthError: false, swallowError: true });
     } catch (error: unknown) {
       if (!isMountedRef.current) return;
       devLog.error("[edit-profile] save failed:", error);
@@ -109,7 +109,7 @@ export default function EditProfile() {
         setIsSubmitting(false);
       }
     }
-  }, [user, name, bio, location, refreshUser, router]);
+  }, [user, name, bio, location, applyUserProfileUpdate, router]);
 
   if (!user) return null;
 

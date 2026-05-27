@@ -3,8 +3,12 @@ import type { LikeMatchResponse } from "../services/api/contracts/match.types";
 import {
   getMatchLikeSnapshot,
   useMatchLikeStore,
+  type LikeApiContext,
   type MatchLikeSnapshot,
 } from "../stores/matchLikeStore";
+import { devLog } from "./devLog";
+
+export type { LikeApiContext, MatchLikeSnapshot };
 
 export function isValidMatchIdForApi(matchId: string): boolean {
   const id = matchId.trim();
@@ -28,15 +32,6 @@ export function canUserToggleMatchLike(
   if (options?.isOwnDashboardMatch && currentUserId) return false;
   if (currentUserId && match.creatorId && match.creatorId === currentUserId) return false;
   return true;
-}
-
-/** Persist authoritative like fields from GET match details into the client snapshot store. */
-export function seedMatchLikeFromMatch(match: Match): void {
-  if (!isValidMatchIdForApi(match.id)) return;
-  useMatchLikeStore.getState().setSnapshot(match.id, {
-    likesCount: typeof match.likesCount === "number" ? match.likesCount : 0,
-    isLiked: Boolean(match.isLiked),
-  });
 }
 
 export function normalizeLikeResponse(raw: unknown, fallbackMatchId: string): LikeMatchResponse {
@@ -66,6 +61,30 @@ export function resolveMatchLikeFields(
   };
 }
 
+/** Reconcile centralized store from a list/detail API row, then return merged match for list state. */
+export function hydrateMatchLikeFromApi(match: Match, context: LikeApiContext): Match {
+  if (!isValidMatchIdForApi(match.id)) return match;
+  useMatchLikeStore.getState().reconcileFromApi(
+    match.id,
+    {
+      likesCount: match.likesCount,
+      isLiked: match.isLiked,
+    },
+    context
+  );
+  return applyMatchLikeOverrides(match);
+}
+
+export function hydrateMatchLikeListFromApi(matches: Match[], context: LikeApiContext): Match[] {
+  return matches.map((m) => hydrateMatchLikeFromApi(m, context));
+}
+
+/** Persist authoritative like fields from GET match details into the centralized store. */
+export function seedMatchLikeFromMatch(match: Match): void {
+  if (!isValidMatchIdForApi(match.id)) return;
+  hydrateMatchLikeFromApi(match, "detail");
+}
+
 export function applyMatchLikeOverrides(match: Match): Match {
   const snap = getMatchLikeSnapshot(match.id);
   if (!snap) return match;
@@ -74,4 +93,11 @@ export function applyMatchLikeOverrides(match: Match): Match {
 
 export function applyMatchLikeOverridesList(matches: Match[]): Match[] {
   return matches.map(applyMatchLikeOverrides);
+}
+
+export function logLikeInteraction(
+  stage: string,
+  payload: Record<string, unknown>
+): void {
+  devLog.info(`[like:lifecycle] ${stage}`, payload);
 }

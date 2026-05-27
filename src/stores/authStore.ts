@@ -7,6 +7,7 @@ import { AppError } from "../services/api/apiErrors";
 import { logShotVisionUi } from "../services/api/apiDebug";
 import { devLog } from "../utils/devLog";
 import { hydrateMatchReportsForUser } from "../services/auth/hydrateMatchReports";
+import { useMatchLikeStore } from "./matchLikeStore";
 import {
   isRetryableColdStartError,
   type AuthLoginAttemptListener,
@@ -15,10 +16,8 @@ import {
   isInvalidSessionProfileError,
   resetAuthDomainStores,
 } from "../services/auth/clearAuthState";
-import {
-  mergeSessionUserProfile,
-  profileImageUrlChanged,
-} from "../utils/profileImageSync";
+import { profileImageUrlChanged } from "../utils/profileImageSync";
+import { profileFieldsSnapshot } from "../utils/profileSessionMerge";
 
 const syncToken = (token: string | null) => apiClient.setAccessToken(token);
 
@@ -62,10 +61,17 @@ interface AuthState {
     invalidateOnAuthError?: boolean;
     swallowError?: boolean;
   }) => Promise<void>;
+  /** Authoritative session update after PATCH /api/users/me (avoids stale GET overwrite). */
+  applyUserProfileUpdate: (profile: UserProfile) => void;
   setUserProfileImage: (image: string | undefined) => void;
 
   login: (
     googleResponse: unknown,
+    options?: { onBackendAttempt?: AuthLoginAttemptListener }
+  ) => Promise<void>;
+  sendEmailSignInLink: (email: string) => Promise<void>;
+  completeEmailLinkSignIn: (
+    emailLink: string,
     options?: { onBackendAttempt?: AuthLoginAttemptListener }
   ) => Promise<void>;
   sendOtp: (identifier: string, method: "email" | "mobile") => Promise<void>;
@@ -79,6 +85,13 @@ interface AuthState {
 
 async function loadProfileAfterAuth(): Promise<UserProfile> {
   return profileService.getCurrentProfile();
+}
+
+async function hydrateEngagementForUser(userId: string): Promise<void> {
+  await Promise.all([
+    hydrateMatchReportsForUser(userId),
+    useMatchLikeStore.getState().hydrateForUser(userId),
+  ]);
 }
 
 async function loadProfileAfterAuthResilient(): Promise<UserProfile> {
@@ -108,6 +121,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   otpSession: null,
   lastInvalidationReason: null,
 
+  applyUserProfileUpdate: (profile: UserProfile) => {
+    const { user, profileImageRevision } = get();
+    if (!user) return;
+    const imageChanged = profileImageUrlChanged(user.image, profile.image);
+    set({
+      user: profile,
+      profileImageRevision: imageChanged ? profileImageRevision + 1 : profileImageRevision,
+    });
+    devLog.info("[authStore] applyUserProfileUpdate", profileFieldsSnapshot(profile));
+  },
+
   setUserProfileImage: (image: string | undefined) => {
     const { user, profileImageRevision } = get();
     if (!user) return;
@@ -134,8 +158,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const profile = await loadProfileAfterAuth();
-      await hydrateMatchReportsForUser(profile.id);
+      await hydrateEngagementForUser(profile.id);
       set({ user: profile, isLoading: false, isHydrated: true, lastInvalidationReason: null });
+      devLog.info("[authStore] bootstrap hydrated", profileFieldsSnapshot(profile));
       logShotVisionUi("authStore", `bootstrap ok userId=${profile.id}`);
     } catch (error) {
       devLog.error("[authStore] bootstrap failed:", error);
@@ -154,7 +179,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
       const profile = await loadProfileAfterAuth();
-      await hydrateMatchReportsForUser(profile.id);
+      await hydrateEngagementForUser(profile.id);
       set({ user: profile, isLoading: false, lastInvalidationReason: null });
       logShotVisionUi("authStore", `restoreSession ok userId=${profile.id}`);
     } catch (error) {
@@ -169,12 +194,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user, profileImageRevision } = get();
     if (!user) return;
     try {
-      const incoming = await loadProfileAfterAuth();
-      const merged = mergeSessionUserProfile(user, incoming);
+      const before = profileFieldsSnapshot(user);
+      const merged = await profileService.getCurrentProfile(user);
       const imageChanged = profileImageUrlChanged(user.image, merged.image);
       set({
         user: merged,
         profileImageRevision: imageChanged ? profileImageRevision + 1 : profileImageRevision,
+      });
+      devLog.info("[authStore] refreshUser", {
+        before,
+        after: profileFieldsSnapshot(merged),
       });
     } catch (error) {
       devLog.warn("[authStore] refreshUser failed:", error);
@@ -201,11 +230,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         onBackendAttempt: options?.onBackendAttempt,
       });
       const profile = await loadProfileAfterAuthResilient();
-      await hydrateMatchReportsForUser(profile.id);
+      await hydrateEngagementForUser(profile.id);
       set({ user: profile, isAuthenticating: false, lastInvalidationReason: null });
       logShotVisionUi("authStore", `login google ok userId=${profile.id}`);
     } catch (error) {
       devLog.error("[authStore] login failed:", error);
+      set({ user: null, isAuthenticating: false });
+      throw error;
+    }
+  },
+
+  sendEmailSignInLink: async (email: string) => {
+    await authService.sendEmailSignInLink(email);
+  },
+
+  completeEmailLinkSignIn: async (emailLink, options) => {
+    if (get().isAuthenticating || get().user) return;
+
+    set({ isAuthenticating: true, lastInvalidationReason: null });
+    try {
+      await authService.completeEmailLinkSignIn(emailLink, options);
+      const profile = await loadProfileAfterAuthResilient();
+      await hydrateEngagementForUser(profile.id);
+      set({ user: profile, isAuthenticating: false, lastInvalidationReason: null });
+      logShotVisionUi("authStore", `login email-link ok userId=${profile.id}`);
+    } catch (error) {
+      devLog.error("[authStore] email link login failed:", error);
       set({ user: null, isAuthenticating: false });
       throw error;
     }
@@ -229,7 +279,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await authService.verifyOtp(otpSession, otp);
       const profile = await loadProfileAfterAuth();
-      await hydrateMatchReportsForUser(profile.id);
+      await hydrateEngagementForUser(profile.id);
       set({ user: profile, isAuthenticating: false, otpSession: null, lastInvalidationReason: null });
       logShotVisionUi("authStore", `login otp ok userId=${profile.id}`);
     } catch (error) {

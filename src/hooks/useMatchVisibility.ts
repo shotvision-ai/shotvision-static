@@ -53,6 +53,13 @@ export function useMatchVisibility(match: Match, options: UseMatchVisibilityOpti
       onVisibilityUpdated?.(updated.isPublic);
       invalidateMyMatchesExploreCache();
       useMatchVisibilityStore.getState().markAllListsStale();
+      if (__DEV__) {
+        devLog.info("[visibility] persisted", {
+          matchId: match.id,
+          isPublic: updated.isPublic,
+          status: match.status,
+        });
+      }
     },
     [match.id, match.status, onVisibilityUpdated, setSnapshot]
   );

@@ -1,18 +1,22 @@
-import { apiClient } from "../api/apiClient";
-import { authSession } from "./authSession";
 import { firebaseAuthService, FirebaseAuthResult } from "./firebaseAuthService";
 import { AppError } from "../api/apiErrors";
-import { normalizeLoginPayload, type LoginResponse } from "./loginPayload";
-import { postAuthLoginWithRetry, type AuthLoginAttemptListener } from "./authLoginRequest";
+import { authSession } from "./authSession";
+import { apiClient } from "../api/apiClient";
+import { type LoginResponse } from "./loginPayload";
+import { type AuthLoginAttemptListener } from "./authLoginRequest";
 import {
   performFullSignOut,
   rollbackFailedLoginAttempt,
 } from "./clearAuthState";
+import { persistLoginFromFirebaseToken } from "./completeFirebaseLogin";
+import {
+  clearPendingEmailForLink,
+  getPendingEmailForLink,
+  savePendingEmailForLink,
+} from "./emailLinkStorage";
 import { devLog } from "../../utils/devLog";
 
 export type { LoginResponse };
-
-const syncAccessToken = (token: string | null) => apiClient.setAccessToken(token);
 
 /**
  * authService — Firebase + backend login orchestration.
@@ -31,27 +35,58 @@ export const authService = {
         return null;
       }
 
-      const rawLogin = await postAuthLoginWithRetry(
-        { firebaseToken: firebaseResult.firebaseToken },
-        options?.onBackendAttempt
-      );
-      const loginData = normalizeLoginPayload(rawLogin);
-
-      await authSession.persistSession(
-        {
-          accessToken: loginData.accessToken,
-          refreshToken: loginData.refreshToken,
-          expiresIn: loginData.expiresIn,
-        },
-        syncAccessToken
-      );
-
-      return loginData.user;
+      return await persistLoginFromFirebaseToken(firebaseResult.firebaseToken, options);
     } catch (error) {
       devLog.error("[authService] login failed:", error);
       await rollbackFailedLoginAttempt();
       if (error instanceof AppError) throw error;
       throw new AppError("Failed to complete login with backend", 500, "LOGIN_FAILURE");
+    }
+  },
+
+  /** Send Firebase Email Link; stores email locally for completion on this device. */
+  async sendEmailSignInLink(email: string): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || !normalized.includes("@")) {
+      throw new AppError("Enter a valid email address.", 400, "INVALID_EMAIL");
+    }
+    await firebaseAuthService.sendEmailLink(normalized);
+    await savePendingEmailForLink(normalized);
+    devLog.info("[authService] email link sent");
+  },
+
+  /**
+   * Complete Email Link sign-in from a deep link URL.
+   * Reuses the same backend JWT exchange as Google SSO.
+   */
+  async completeEmailLinkSignIn(
+    emailLink: string,
+    options?: { onBackendAttempt?: AuthLoginAttemptListener; email?: string }
+  ): Promise<LoginResponse["user"]> {
+    const link = emailLink.trim();
+    if (!link) {
+      throw new AppError("Missing sign-in link.", 400, "INVALID_EMAIL_LINK");
+    }
+
+    const email = (options?.email ?? (await getPendingEmailForLink()))?.trim().toLowerCase();
+    if (!email) {
+      throw new AppError(
+        "We could not verify which email requested this link. Enter your email on the login screen and request a new link.",
+        400,
+        "EMAIL_REQUIRED"
+      );
+    }
+
+    try {
+      const firebaseResult = await firebaseAuthService.signInWithEmailLink(email, link);
+      const user = await persistLoginFromFirebaseToken(firebaseResult.firebaseToken, options);
+      await clearPendingEmailForLink();
+      return user;
+    } catch (error) {
+      devLog.error("[authService] email link login failed:", error);
+      await rollbackFailedLoginAttempt();
+      if (error instanceof AppError) throw error;
+      throw new AppError("Failed to complete email link sign-in.", 500, "EMAIL_LINK_FAILURE");
     }
   },
 
@@ -71,13 +106,13 @@ export const authService = {
 
   /** @deprecated Prefer authStore.bootstrap — kept for direct service calls. */
   async restoreSession(): Promise<boolean> {
-    return authSession.restoreFromStorage(syncAccessToken);
+    return authSession.restoreFromStorage((token) => apiClient.setAccessToken(token));
   },
 
   async sendOtp(identifier: string, method: "email" | "mobile"): Promise<string> {
     try {
       if (method === "email") {
-        await firebaseAuthService.sendEmailLink(identifier);
+        await this.sendEmailSignInLink(identifier);
         return "email_sent";
       }
       return await firebaseAuthService.sendOtp(identifier);
@@ -100,21 +135,7 @@ export const authService = {
       }
 
       const firebaseResult = await firebaseAuthService.verifyOtp(sessionInfo, otp);
-      const raw = await postAuthLoginWithRetry({
-        firebaseToken: firebaseResult.firebaseToken,
-      });
-      const loginData = normalizeLoginPayload(raw);
-
-      await authSession.persistSession(
-        {
-          accessToken: loginData.accessToken,
-          refreshToken: loginData.refreshToken,
-          expiresIn: loginData.expiresIn,
-        },
-        syncAccessToken
-      );
-
-      return loginData.user;
+      return await persistLoginFromFirebaseToken(firebaseResult.firebaseToken);
     } catch (error: unknown) {
       devLog.error("[authService] OTP verification failed:", error);
       await rollbackFailedLoginAttempt();

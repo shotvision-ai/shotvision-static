@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { bindAuthSessionToStore, useAuthStore } from "../stores/authStore";
+import { useEmailLinkAuthHandler } from "../hooks/useEmailLinkAuthHandler";
 import type { UserProfile } from "../services/api/profileService";
 import type { SessionInvalidationReason } from "../services/auth/authSession";
 
@@ -12,6 +13,11 @@ interface AuthContextType {
   lastInvalidationReason: SessionInvalidationReason | null;
   login: (
     googleResponse: unknown,
+    options?: { onBackendAttempt?: (attempt: number, maxAttempts: number) => void }
+  ) => Promise<void>;
+  sendEmailSignInLink: (email: string) => Promise<void>;
+  completeEmailLinkSignIn: (
+    emailLink: string,
     options?: { onBackendAttempt?: (attempt: number, maxAttempts: number) => void }
   ) => Promise<void>;
   loginWithOtp: (identifier: string, otp: string) => Promise<void>;
@@ -41,6 +47,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const restoreSession = useAuthStore((s) => s.restoreSession);
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const login = useAuthStore((s) => s.login);
+  const sendEmailSignInLink = useAuthStore((s) => s.sendEmailSignInLink);
+  const completeEmailLinkSignIn = useAuthStore((s) => s.completeEmailLinkSignIn);
   const loginWithOtp = useAuthStore((s) => s.loginWithOtp);
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const logout = useAuthStore((s) => s.logout);
@@ -52,6 +60,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return unbind;
   }, [bootstrap]);
 
+  useEmailLinkAuthHandler(isHydrated);
+
   const value = useMemo<AuthContextType>(
     () => ({
       user,
@@ -61,6 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isHydrated,
       lastInvalidationReason,
       login,
+      sendEmailSignInLink,
+      completeEmailLinkSignIn,
       loginWithOtp,
       sendOtp,
       logout,
@@ -75,6 +87,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isHydrated,
       lastInvalidationReason,
       login,
+      sendEmailSignInLink,
+      completeEmailLinkSignIn,
       loginWithOtp,
       sendOtp,
       logout,

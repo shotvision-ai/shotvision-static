@@ -29,7 +29,7 @@ export default function Dashboard() {
     status: quickFilter,
     enabled: !!user,
   });
-  const likeOverrides = useMatchLikeStore((s) => s.overrides);
+  const likeRevision = useMatchLikeStore((s) => s.revision);
 
   useFocusEffect(
     useCallback(() => {
@@ -105,7 +105,7 @@ export default function Dashboard() {
     <SafeAreaView className="flex-1 bg-background" edges={["bottom", "left", "right"]}>
       <FlatList
         data={matches}
-        extraData={`${quickFilter}-${isRefreshing}-${matches.length}-${JSON.stringify(likeOverrides)}`}
+        extraData={`${quickFilter}-${isRefreshing}-${matches.length}-${likeRevision}`}
         renderItem={({ item }) => <MatchCard match={item} />}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeader}

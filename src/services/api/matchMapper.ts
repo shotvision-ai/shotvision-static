@@ -1,6 +1,7 @@
 import { Match, MatchParticipantGender, MatchSet, MatchStatus } from "../../../types/match";
 import { coalesceProfileImageUrl } from "../../utils/profileImageUrl";
 import { AppError } from "./apiErrors";
+import { devLog } from "../../utils/devLog";
 
 function mapStatus(raw: unknown): MatchStatus {
   const s = String(raw ?? "").toUpperCase();
@@ -146,7 +147,7 @@ export function normalizeMatch(raw: unknown): Match {
           ? r.finished_at
           : null,
     location: typeof r.location === "string" ? r.location : undefined,
-    isPublic: Boolean(r.isPublic ?? r.public ?? false),
+    isPublic: Boolean(r.isPublic ?? r.is_public ?? r.public ?? false),
     sets,
     notes: typeof r.notes === "string" ? r.notes : undefined,
     winner: r.winner !== undefined && r.winner !== null ? mapWinner(r.winner) : undefined,
@@ -173,16 +174,24 @@ export function normalizeExploreMatch(raw: unknown): Match {
 /** Maps explore list items; skips invalid rows instead of failing the whole list. */
 export function normalizeExploreMatchList(raw: unknown[]): Match[] {
   const out: Match[] = [];
+  let skippedInvalid = 0;
+  let skippedMissingId = 0;
   for (let i = 0; i < raw.length; i++) {
     try {
-      let m = normalizeExploreMatch(raw[i]);
+      const m = normalizeExploreMatch(raw[i]);
       if (!m.id.trim()) {
-        m = { ...m, id: `match-${i}` };
+        skippedMissingId += 1;
+        continue;
       }
       out.push(m);
     } catch {
-      // skip invalid row
+      skippedInvalid += 1;
     }
+  }
+  if (__DEV__ && (skippedInvalid > 0 || skippedMissingId > 0)) {
+    devLog.warn(
+      `[explore:mapper] dropped invalid=${skippedInvalid} missingId=${skippedMissingId} kept=${out.length}`
+    );
   }
   return out;
 }

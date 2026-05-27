@@ -4,7 +4,7 @@ import { Match } from "../../types/match";
 import { getUserFriendlyErrorMessage } from "../services/api/userFriendlyErrors";
 import { logShotVisionUi } from "../services/api/apiDebug";
 import { devLog } from "../utils/devLog";
-import { applyMatchLikeOverridesList } from "../utils/matchLike";
+import { hydrateMatchLikeListFromApi } from "../utils/matchLike";
 import { enrichMyDashboardMatches } from "../utils/enrichMyDashboardMatches";
 import {
   enrichExploreMatches,
@@ -13,6 +13,7 @@ import {
 } from "../utils/matchOwnership";
 import {
   applyMatchVisibilityOverridesList,
+  reconcileExploreApiVisibility,
   reconcileVisibilityFromApiItems,
 } from "../utils/matchVisibility";
 import { applyMatchReportOverridesList } from "../utils/matchReport";
@@ -21,7 +22,9 @@ import {
   filterExploreFeedMatches,
   supplementExploreWithViewerPublicMatches,
 } from "../utils/exploreFeedSync";
+import { buildExploreApiIdSet, logExplorePipelineStats } from "../utils/explorePublicSync";
 import { useAuth } from "../context/AuthContext";
+import { useMatchLikeStore } from "../stores/matchLikeStore";
 
 interface UseMatchesOptions {
   status?: MatchStatusFilter;
@@ -46,7 +49,7 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
   const requestSeqRef = useRef(0);
 
   const fetchMatches = useCallback(
-    async (pageNum: number, refresh: boolean = false) => {
+    async (pageNum: number, refresh: boolean = false): Promise<boolean> => {
       const requestId = ++requestSeqRef.current;
 
       if (refresh) {
@@ -57,6 +60,13 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
       setError(null);
 
       try {
+        if (user?.id) {
+          const likeStore = useMatchLikeStore.getState();
+          if (likeStore.hydratedForUserId !== user.id) {
+            await likeStore.hydrateForUser(user.id);
+          }
+        }
+
         let response: PaginatedResponse<Match>;
 
         if (type === "explore") {
@@ -67,7 +77,7 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
         }
 
         if (requestId !== requestSeqRef.current) {
-          return;
+          return false;
         }
 
         let items = response.items;
@@ -75,33 +85,53 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
           items = enrichMyDashboardMatches(items, user?.id);
           syncMatchOwnershipFromMatches(items);
         } else {
+          const exploreApiCount = items.length;
           items = enrichExploreMatches(items, user?.id);
-          // Supplement only on the first page (refresh or initial load) — applying it on
-          // subsequent pages would re-prepend already-shown owner matches, producing duplicates.
+          const exploreApiIds = buildExploreApiIdSet(items);
+          reconcileExploreApiVisibility(items);
+
+          // Supplement only on page 1 — avoids re-prepending owner rows on load-more.
           if (pageNum === 1) {
             items = await supplementExploreWithViewerPublicMatches(items, user?.id, status);
           }
+          const afterSupplementCount = items.length;
+          const supplementedCount = Math.max(0, afterSupplementCount - exploreApiCount);
+
           items = dedupeExploreFeedMatches(items);
-          // Reconcile store snapshots from fresh API data so stale overrides don't corrupt
-          // visibility chip display (e.g. showing "Private" for a match that's now public).
+          const afterDedupeCount = items.length;
+
           reconcileVisibilityFromApiItems(items);
-          items = filterExploreFeedMatches(
-            applyMatchReportOverridesList(
-              applyMatchVisibilityOverridesList(applyMatchLikeOverridesList(items))
-            )
+
+          const merged = applyMatchReportOverridesList(
+            applyMatchVisibilityOverridesList(hydrateMatchLikeListFromApi(items, "explore"))
           );
+          const beforeFilterCount = merged.length;
+          items = filterExploreFeedMatches(merged, exploreApiIds);
+          const afterFilterCount = items.length;
+
+          logExplorePipelineStats({
+            page: pageNum,
+            status,
+            exploreApiCount,
+            afterSupplementCount,
+            afterDedupeCount,
+            afterFilterCount,
+            supplementedCount,
+            suppressedByPrivateSnapshot: Math.max(0, beforeFilterCount - afterFilterCount),
+            suppressedMissingId: 0,
+          });
         }
         if (type === "my") {
           reconcileVisibilityFromApiItems(items);
           items = applyMatchReportOverridesList(
-            applyMatchVisibilityOverridesList(applyMatchLikeOverridesList(items))
+            applyMatchVisibilityOverridesList(hydrateMatchLikeListFromApi(items, "dashboard"))
           );
         }
 
         if (refresh) {
           setMatches(items);
         } else {
-          setMatches((prev) => [...prev, ...items]);
+          setMatches((prev) => dedupeExploreFeedMatches([...prev, ...items]));
         }
 
         const more =
@@ -114,14 +144,16 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
           `useMatches(${type})`,
           `items=${response.items.length} total=${response.total} page=${response.page}/${response.totalPages} hasMore=${more}`
         );
+        return true;
       } catch (err: unknown) {
         if (requestId !== requestSeqRef.current) {
-          return;
+          return false;
         }
         devLog.error(`[useMatches:${type}]`, err);
         const msg = getUserFriendlyErrorMessage(err, "Failed to load matches");
         setError(msg);
         logShotVisionUi(`useMatches(${type})`, `ERROR ${msg}`);
+        return false;
       } finally {
         if (requestId === requestSeqRef.current) {
           setIsLoading(false);
@@ -144,14 +176,14 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
       return;
     }
 
-    fetchMatches(1, true);
+    void fetchMatches(1, true);
     return () => {
       requestSeqRef.current += 1;
     };
   }, [fetchMatches, enabled]);
 
-  const refresh = useCallback(() => {
-    fetchMatches(1, true);
+  const refresh = useCallback(async () => {
+    return await fetchMatches(1, true);
   }, [fetchMatches]);
 
   const loadMore = useCallback(() => {

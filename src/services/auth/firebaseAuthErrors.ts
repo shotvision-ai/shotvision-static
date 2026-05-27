@@ -13,6 +13,14 @@ export function toFirebaseAuthAppError(error: unknown): AppError {
   const messages: Record<string, string> = {
     "auth/account-exists-with-different-credential":
       "An account already exists with this email using a different sign-in method.",
+    "auth/invalid-action-code":
+      "This sign-in link is invalid or has expired. Request a new link from the login screen.",
+    "auth/expired-action-code":
+      "This sign-in link has expired. Request a new link from the login screen.",
+    "auth/invalid-email": "Enter a valid email address.",
+    "auth/missing-email":
+      "We need the email you used to request the link. Request a new link from the login screen.",
+    "auth/operation-not-allowed": "Email link sign-in is not enabled for this app.",
     "auth/invalid-credential": "Google sign-in could not be verified. Try again.",
     "auth/user-disabled": "This account has been disabled.",
     "auth/user-not-found": "No user found for this Google account.",
