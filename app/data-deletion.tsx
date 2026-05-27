@@ -1,179 +1,209 @@
 import React from "react";
-import { View, ScrollView, Platform } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View, ScrollView, TouchableOpacity } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Stack, useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
 import LucideIcon from "~/lib/icons/LucideIcon";
-
-const BLUE = "#2563eb";
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View className="mb-7">
-      <Text style={{ fontSize: 17, fontWeight: "700", color: "#1f2937", marginBottom: 10 }}>
-        {title}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-function BulletItem({ text }: { text: string }) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 6 }}>
-      <View
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 3,
-          backgroundColor: BLUE,
-          marginTop: 7,
-          marginRight: 10,
-          flexShrink: 0,
-        }}
-      />
-      <Text style={{ fontSize: 15, color: "#374151", lineHeight: 24, flex: 1 }}>{text}</Text>
-    </View>
-  );
-}
+import { useTheme } from "~/theming/ThemeProvider";
+import {
+  BRAND_BLUE,
+  PolicyBodyText,
+  PolicyBulletItem,
+  PolicyMutedText,
+  PolicyPrimaryCallout,
+  PolicySection,
+  usePolicySurfaces,
+} from "~/components/layout/PolicyPrimitives";
 
 export default function DataDeletion() {
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { theme } = useTheme();
+  const surfaces = usePolicySurfaces();
+
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingTop: 8 + androidTopOffset,
-          paddingBottom: 60,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Hero */}
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <View
           style={{
-            backgroundColor: "rgba(37,99,235,0.06)",
-            borderRadius: 20,
-            padding: 20,
-            marginBottom: 24,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 14,
-            borderWidth: 1,
-            borderColor: "rgba(37,99,235,0.12)",
+            paddingTop: insets.top,
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+            backgroundColor: theme.colors.background,
           }}
         >
           <View
             style={{
-              width: 48,
-              height: 48,
-              borderRadius: 24,
-              backgroundColor: BLUE,
+              height: 56,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
+              paddingHorizontal: 4,
             }}
           >
-            <LucideIcon name="ShieldCheck" size={24} color="#ffffff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#1f2937", marginBottom: 2 }}>
-              You control your data
-            </Text>
-            <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: 20 }}>
-              You have full control over your data in Shot Vision.
-            </Text>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={{
+                padding: 8,
+                marginLeft: 4,
+                minWidth: 44,
+                minHeight: 44,
+                justifyContent: "center",
+              }}
+            >
+              <LucideIcon name="ChevronLeft" size={26} color={theme.colors.foreground} />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  fontFamily: theme.typography.h2?.fontFamily,
+                  color: theme.colors.foreground,
+                }}
+                numberOfLines={1}
+              >
+                Data Deletion
+              </Text>
+            </View>
+
+            <View style={{ width: 44 }} />
           </View>
         </View>
 
-        <Section title="How to Delete Your Account">
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 8,
+            paddingBottom: 40 + insets.bottom,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
           <View
             style={{
-              backgroundColor: "rgba(37,99,235,0.04)",
-              borderRadius: 14,
-              padding: 16,
-              marginBottom: 12,
-              borderWidth: 1,
-              borderColor: "rgba(37,99,235,0.1)",
+              backgroundColor: surfaces.primary.bg,
+              borderRadius: 20,
+              padding: 20,
+              marginBottom: 24,
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <LucideIcon name="Settings" size={18} color={BLUE} />
-            <Text style={{ fontSize: 15, fontWeight: "600", color: BLUE }}>
-              Settings → Delete Account
-            </Text>
-          </View>
-          <Text style={{ fontSize: 14, color: "#6b7280", lineHeight: 22, marginBottom: 12 }}>
-            Once you confirm deletion:
-          </Text>
-          <BulletItem text="Your profile will be permanently removed" />
-          <BulletItem text="All matches you created will be permanently deleted" />
-          <BulletItem text="Public matches will be removed from public view" />
-          <BulletItem text="Your device notification tokens will be removed" />
-          <BulletItem text="All associated data will be erased from our servers" />
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              backgroundColor: "rgba(220,38,38,0.06)",
-              borderRadius: 12,
-              padding: 12,
-              marginTop: 12,
+              gap: 14,
               borderWidth: 1,
-              borderColor: "rgba(220,38,38,0.15)",
+              borderColor: surfaces.primary.border,
             }}
           >
-            <LucideIcon name="TriangleAlert" size={16} color="#dc2626" />
-            <Text style={{ fontSize: 13, color: "#dc2626", fontWeight: "600", flex: 1 }}>
-              This action cannot be undone.
-            </Text>
+            <View
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: BRAND_BLUE,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <LucideIcon name="ShieldCheck" size={24} color="#ffffff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "700",
+                  color: surfaces.foreground,
+                  marginBottom: 2,
+                }}
+              >
+                You control your data
+              </Text>
+              <PolicyMutedText style={{ fontSize: 13, lineHeight: 20 }}>
+                You have full control over your data in Shot Vision.
+              </PolicyMutedText>
+            </View>
           </View>
-        </Section>
 
-        <Section title="What Happens After Deletion">
-          <Text style={{ fontSize: 14, color: "#6b7280", lineHeight: 22, marginBottom: 12 }}>
-            After deletion:
-          </Text>
-          <BulletItem text="You will be logged out immediately" />
-          <BulletItem text="Your data will no longer be accessible" />
-          <BulletItem text="You will need to create a new account to use the app again" />
-        </Section>
+          <PolicySection title="How to Delete Your Account">
+            <PolicyPrimaryCallout
+              style={{
+                marginBottom: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                backgroundColor: surfaces.primary.softBg,
+              }}
+            >
+              <LucideIcon name="Settings" size={18} color={BRAND_BLUE} />
+              <Text style={{ fontSize: 15, fontWeight: "600", color: BRAND_BLUE }}>
+                Settings → Delete Account
+              </Text>
+            </PolicyPrimaryCallout>
+            <PolicyMutedText style={{ marginBottom: 12 }}>
+              Once you confirm deletion:
+            </PolicyMutedText>
+            <PolicyBulletItem text="Your profile will be permanently removed" />
+            <PolicyBulletItem text="All matches you created will be permanently deleted" />
+            <PolicyBulletItem text="Public matches will be removed from public view" />
+            <PolicyBulletItem text="Your device notification tokens will be removed" />
+            <PolicyBulletItem text="All associated data will be erased from our servers" />
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                backgroundColor: surfaces.danger.bg,
+                borderRadius: 12,
+                padding: 12,
+                marginTop: 12,
+                borderWidth: 1,
+                borderColor: surfaces.danger.border,
+              }}
+            >
+              <LucideIcon name="TriangleAlert" size={16} color={surfaces.danger.text} />
+              <Text
+                style={{ fontSize: 13, color: surfaces.danger.text, fontWeight: "600", flex: 1 }}
+              >
+                This action cannot be undone.
+              </Text>
+            </View>
+          </PolicySection>
 
-        <Section title="Processing Time">
-          <Text style={{ fontSize: 15, color: "#374151", lineHeight: 24, marginBottom: 8 }}>
-            Account deletion is processed immediately upon confirmation.
-          </Text>
-          <Text style={{ fontSize: 15, color: "#374151", lineHeight: 24 }}>
-            In rare technical cases, deletion may take up to 7 days to fully propagate through
-            backups.
-          </Text>
-        </Section>
+          <PolicySection title="What Happens After Deletion">
+            <PolicyMutedText style={{ marginBottom: 12 }}>After deletion:</PolicyMutedText>
+            <PolicyBulletItem text="You will be logged out immediately" />
+            <PolicyBulletItem text="Your data will no longer be accessible" />
+            <PolicyBulletItem text="You will need to create a new account to use the app again" />
+          </PolicySection>
 
-        <Section title="Need Help?">
-          <Text style={{ fontSize: 15, color: "#374151", lineHeight: 24, marginBottom: 12 }}>
-            If you experience issues deleting your account, contact:
-          </Text>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              backgroundColor: "rgba(37,99,235,0.06)",
-              borderRadius: 12,
-              padding: 14,
-              borderWidth: 1,
-              borderColor: "rgba(37,99,235,0.12)",
-            }}
-          >
-            <LucideIcon name="Mail" size={18} color={BLUE} />
-            <Text style={{ fontSize: 15, fontWeight: "600", color: BLUE }}>
-              support@yourdomain.com
-            </Text>
-          </View>
-        </Section>
-      </ScrollView>
-    </SafeAreaView>
+          <PolicySection title="Processing Time">
+            <PolicyBodyText style={{ marginBottom: 8 }}>
+              Account deletion is processed immediately upon confirmation.
+            </PolicyBodyText>
+            <PolicyBodyText>
+              In rare technical cases, deletion may take up to 7 days to fully propagate through
+              backups.
+            </PolicyBodyText>
+          </PolicySection>
+
+          <PolicySection title="Need Help?">
+            <PolicyBodyText style={{ marginBottom: 12 }}>
+              If you experience issues deleting your account, contact:
+            </PolicyBodyText>
+            <PolicyPrimaryCallout
+              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+            >
+              <LucideIcon name="Mail" size={18} color={BRAND_BLUE} />
+              <Text style={{ fontSize: 15, fontWeight: "600", color: BRAND_BLUE }}>
+                support@shotvision.app
+              </Text>
+            </PolicyPrimaryCallout>
+          </PolicySection>
+        </ScrollView>
+      </View>
+    </>
   );
 }

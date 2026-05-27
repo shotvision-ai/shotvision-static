@@ -14,6 +14,7 @@ import { tokenStorage, type PersistedAuthSession } from "./tokenStorage";
 
 export type SessionInvalidationReason =
   | "logout"
+  | "account_deleted"
   | "refresh_failed"
   | "unauthorized"
   | "manual";

@@ -26,4 +26,6 @@ export interface RequestOptions {
   params?: Record<string, string>;
   /** Skip Authorization header (login / refresh / public routes). */
   skipAuth?: boolean;
+  /** Per-request timeout; defaults to `DEFAULT_API_REQUEST_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }

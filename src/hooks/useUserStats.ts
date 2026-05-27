@@ -3,6 +3,7 @@ import { profileService } from "../services/api/profileService";
 import type { UserStatsResponse } from "../services/api/contracts";
 import { getUserFriendlyErrorMessage } from "../services/api/userFriendlyErrors";
 import { devLog } from "../utils/devLog";
+import { normalizeUserStatsResponse } from "../utils/userStats";
 
 export const useUserStats = (enabled: boolean = true) => {
   const [stats, setStats] = useState<UserStatsResponse | null>(null);
@@ -20,7 +21,7 @@ export const useUserStats = (enabled: boolean = true) => {
     try {
       const data = await profileService.getMyStats();
       if (requestId !== requestSeqRef.current) return;
-      setStats(data);
+      setStats(normalizeUserStatsResponse(data));
     } catch (err: unknown) {
       if (requestId !== requestSeqRef.current) return;
       devLog.error("[useUserStats]", err);

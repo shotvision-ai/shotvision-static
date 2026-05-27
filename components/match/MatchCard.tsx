@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { View, TouchableOpacity, Alert } from "react-native";
+import { View, Pressable, TouchableOpacity, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
 import { StatusBadge } from "./StatusBadge";
@@ -8,8 +7,16 @@ import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
 import { useAuth } from "../../src/context/AuthContext";
-import { useDefaultAvatar } from "../../src/context/DefaultAvatarContext";
-import { matchService } from "../../src/services/api/matchService";
+import { useCurrentUserAvatarProps } from "../../src/hooks/useCurrentUserAvatar";
+import {
+  isMatchParticipantSelf,
+  resolveMatchParticipantImageUrl,
+} from "../../src/utils/matchParticipantAvatar";
+import { useMatchLike } from "../../src/hooks/useMatchLike";
+import { MatchVisibilityControl } from "./MatchVisibilityControl";
+import { OwnerMatchCardActions } from "./OwnerMatchCardActions";
+import { MatchLikeButton } from "./MatchLikeButton";
+import { useAppTheming } from "../../src/hooks/useAppTheming";
 
 interface MatchCardProps {
   match: Match;
@@ -19,40 +26,11 @@ export function MatchCard({ match }: MatchCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const { user: currentUser } = useAuth();
-  const { preferredAvatarId } = useDefaultAvatar();
+  const currentUserAvatar = useCurrentUserAvatarProps(currentUser?.id);
 
-  // Like state
-  const [isLiked, setIsLiked] = useState(match.isLiked || false);
-  const [likesCount, setLikesCount] = useState(match.likesCount || 0);
-  const [isLiking, setIsLiking] = useState(false);
-
-  const handleLike = async () => {
-    if (isLiking) return;
-
-    const previousIsLiked = isLiked;
-    const previousLikesCount = likesCount;
-
-    // Optimistic update
-    setIsLiked(!previousIsLiked);
-    setLikesCount(previousIsLiked ? previousLikesCount - 1 : previousLikesCount + 1);
-    setIsLiking(true);
-
-    try {
-      const result = previousIsLiked
-        ? await matchService.unlikeMatch(match.id)
-        : await matchService.likeMatch(match.id);
-      setIsLiked(result.likedByMe);
-      setLikesCount(result.likesCount);
-    } catch (error) {
-      console.error("Failed to like/unlike match:", error);
-      // Rollback on failure
-      setIsLiked(previousIsLiked);
-      setLikesCount(previousLikesCount);
-      Alert.alert("Error", "Failed to update like. Please try again.");
-    } finally {
-      setIsLiking(false);
-    }
-  };
+  const { isLiked, likesCount, isLiking, canToggle, handleLike } = useMatchLike(match, {
+    isOwnDashboardMatch: true,
+  });
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -70,39 +48,24 @@ export function MatchCard({ match }: MatchCardProps) {
     return null;
   };
 
-  const isEditableWithin48h = () => {
-    if (match.status !== "completed") return false;
-    const matchDate = new Date(match.matchDate);
-    const now = new Date();
-    const hoursSince = (now.getTime() - matchDate.getTime()) / (1000 * 60 * 60);
-    return hoursSince <= 48;
+  const isPlayerASelf = isMatchParticipantSelf(
+    match.playerAUserId,
+    match.playerA,
+    currentUser ?? undefined
+  );
+  const isPlayerBSelf = isMatchParticipantSelf(
+    match.playerBUserId,
+    match.playerB,
+    currentUser ?? undefined
+  );
+
+  const openMatchDetails = () => {
+    if (!match.id?.trim()) return;
+    router.push(`/match/${match.id}`);
   };
 
-  const editWindow = isEditableWithin48h();
-
-  // Player 2 (player B) can opt out if the match is live or scheduled
-  const isPlayerB = currentUser && match.playerB === currentUser.name;
-  const canOptOut = isPlayerB && (match.status === "live" || match.status === "scheduled");
-
-  const nameEq = (a: string, b: string) =>
-    Boolean(a.trim()) && Boolean(b.trim()) && a.trim().toLowerCase() === b.trim().toLowerCase();
-  const isPlayerASelf = Boolean(currentUser?.name && nameEq(match.playerA, currentUser.name));
-  const isPlayerBSelf = Boolean(currentUser?.name && nameEq(match.playerB, currentUser.name));
-
-  const handleOptOut = () => {
-    Alert.alert(
-      "Opt Out of Match",
-      `Are you sure you want to opt out of this match against ${match.playerA}? The match organiser will be notified.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Opt Out",
-          style: "destructive",
-          onPress: () => Alert.alert("Opted Out", "You have been removed from this match."),
-        },
-      ],
-    );
-  };
+  const { colors: ui } = useAppTheming();
+  const metaMuted = ui.muted;
 
   const accentColor =
     match.status === "live"
@@ -113,47 +76,54 @@ export function MatchCard({ match }: MatchCardProps) {
           ? "#22c55e"
           : "#2563eb";
 
+  const cardContainerStyle = {
+    backgroundColor:
+      match.status === "live"
+        ? ui.liveCardTint
+        : theme.colors.card,
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 2 } as const,
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "rgba(37,99,235,0.12)",
+    overflow: "hidden" as const,
+  };
+
   return (
-    <TouchableOpacity
-      onPress={() => router.push(`/match/${match.id}`)}
-      className="rounded-2xl mb-4 overflow-hidden"
-      style={{
-        backgroundColor:
-          match.status === "live"
-            ? theme.name === "dark"
-              ? "rgba(251, 146, 60, 0.1)"
-              : "#FFF4E5"
-            : theme.colors.card,
-        shadowColor: "#2563eb",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.07,
-        shadowRadius: 10,
-        elevation: 3,
-        borderWidth: 1,
-        borderColor: "rgba(37,99,235,0.12)",
-        overflow: "hidden",
-      }}
-      activeOpacity={0.7}
-    >
-      {/* Status accent stripe */}
+    <View className="rounded-2xl mb-4 overflow-hidden" style={cardContainerStyle}>
       <View style={{ height: 4, backgroundColor: accentColor }} />
       <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 }}>
-        {/* Top Row with Status */}
+        {/* Top row: visibility is its own control; rest opens details */}
         <View className="flex-row items-start justify-between mb-3">
-          <View className="flex-1">
-            {/* Winner Announcement */}
-            {getWinnerText() && (
+          <Pressable
+            onPress={openMatchDetails}
+            style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.7 : 1 })}
+            accessibilityRole="button"
+            accessibilityLabel="Open match details"
+          >
+            {getWinnerText() ? (
               <View className="flex-row items-center">
                 <Text style={{ fontSize: 14, fontWeight: "600", color: "#2563eb" }}>🏆 </Text>
                 <Text style={{ fontSize: 14, fontWeight: "600", color: "#2563eb" }}>
                   {getWinnerText()}
                 </Text>
               </View>
-            )}
+            ) : null}
+          </Pressable>
+          <View className="flex-row items-center gap-2">
+            <MatchVisibilityControl match={match} isOwnDashboardMatch variant="chip" />
+            <StatusBadge status={match.status} />
           </View>
-          <StatusBadge status={match.status} />
         </View>
 
+        <Pressable
+          onPress={openMatchDetails}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          accessibilityRole="button"
+          accessibilityLabel="Open match details"
+        >
         {/* Players Row */}
         <View className="flex-row items-center justify-between mb-4">
           {/* Player A */}
@@ -181,10 +151,23 @@ export function MatchCard({ match }: MatchCardProps) {
                 className="bg-muted"
               >
                 <ProfileAvatar
-                  imageUrl={match.playerAImage}
-                  preferredAvatarId={isPlayerASelf ? preferredAvatarId : undefined}
+                  imageUrl={resolveMatchParticipantImageUrl(match.playerAImage, {
+                    isSelf: isPlayerASelf,
+                    selfImage: currentUser?.image,
+                  })}
+                  preferredAvatarId={
+                    isPlayerASelf ? currentUserAvatar.preferredAvatarId : undefined
+                  }
+                  imageDisplayKey={
+                    isPlayerASelf ? currentUserAvatar.imageDisplayKey : undefined
+                  }
+                  profileImageCacheRevision={
+                    isPlayerASelf ? currentUserAvatar.profileImageCacheRevision : undefined
+                  }
                   fallbackUserId={
-                    isPlayerASelf ? undefined : match.playerAUserId ?? `${match.id}:playerA`
+                    isPlayerASelf
+                      ? currentUserAvatar.fallbackUserId
+                      : match.playerAUserId ?? `${match.id}:playerA`
                   }
                   fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
                   size={70}
@@ -240,10 +223,23 @@ export function MatchCard({ match }: MatchCardProps) {
                 className="bg-muted"
               >
                 <ProfileAvatar
-                  imageUrl={match.playerBImage}
-                  preferredAvatarId={isPlayerBSelf ? preferredAvatarId : undefined}
+                  imageUrl={resolveMatchParticipantImageUrl(match.playerBImage, {
+                    isSelf: isPlayerBSelf,
+                    selfImage: currentUser?.image,
+                  })}
+                  preferredAvatarId={
+                    isPlayerBSelf ? currentUserAvatar.preferredAvatarId : undefined
+                  }
+                  imageDisplayKey={
+                    isPlayerBSelf ? currentUserAvatar.imageDisplayKey : undefined
+                  }
+                  profileImageCacheRevision={
+                    isPlayerBSelf ? currentUserAvatar.profileImageCacheRevision : undefined
+                  }
                   fallbackUserId={
-                    isPlayerBSelf ? undefined : match.playerBUserId ?? `${match.id}:playerB`
+                    isPlayerBSelf
+                      ? currentUserAvatar.fallbackUserId
+                      : match.playerBUserId ?? `${match.id}:playerB`
                   }
                   fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
                   size={70}
@@ -273,7 +269,7 @@ export function MatchCard({ match }: MatchCardProps) {
         {/* Scheduled Info */}
         {match.status === "scheduled" && (
           <View className="mb-4">
-            <Text style={{ fontSize: 13, color: "#6B7280" }}>
+            <Text style={{ fontSize: 13, color: metaMuted }}>
               Scheduled for {formatDate(match.matchDate)}
             </Text>
           </View>
@@ -301,151 +297,46 @@ export function MatchCard({ match }: MatchCardProps) {
             </View>
           </View>
         )}
+        </Pressable>
 
-        {/* 48h Edit/Notes Row for finished matches */}
-        {editWindow && (
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 8,
-              marginBottom: 12,
-              paddingTop: 12,
-              borderTopWidth: 1,
-              borderTopColor: "rgba(0,0,0,0.06)",
-            }}
-          >
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation?.();
-                router.push(`/edit-match/${match.id}`);
-              }}
-              style={{
-                flex: 1,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                paddingVertical: 8,
-                borderRadius: 10,
-                backgroundColor: "rgba(37,99,235,0.08)",
-                borderWidth: 1,
-                borderColor: "rgba(37,99,235,0.2)",
-              }}
-            >
-              <LucideIcon name="PenLine" size={14} color="#2563eb" />
-              <Text style={{ fontSize: 12, fontWeight: "600", color: "#2563eb" }}>Edit Score</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation?.();
-                router.push(`/match/${match.id}`);
-              }}
-              style={{
-                flex: 1,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                paddingVertical: 8,
-                borderRadius: 10,
-                backgroundColor: "rgba(245,158,11,0.08)",
-                borderWidth: 1,
-                borderColor: "rgba(245,158,11,0.2)",
-              }}
-            >
-              <LucideIcon name="StickyNote" size={14} color="#f59e0b" />
-              <Text style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}>Notes</Text>
-            </TouchableOpacity>
-            <View
-              style={{
-                paddingHorizontal: 8,
-                paddingVertical: 4,
-                borderRadius: 6,
-                backgroundColor: "rgba(0,0,0,0.04)",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ fontSize: 10, color: "#9ca3af", fontWeight: "500" }}>48h limit</Text>
-            </View>
-          </View>
-        )}
+        <OwnerMatchCardActions
+          match={match}
+          currentUserId={currentUser?.id}
+          isOwnDashboardMatch
+        />
 
-        {/* Player 2 opt-out */}
-        {canOptOut && (
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation?.();
-              handleOptOut();
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              paddingVertical: 8,
-              borderRadius: 10,
-              backgroundColor: "rgba(220,38,38,0.07)",
-              borderWidth: 1,
-              borderColor: "rgba(220,38,38,0.18)",
-              marginBottom: 12,
-            }}
-          >
-            <LucideIcon name="LogOut" size={14} color="#dc2626" />
-            <Text style={{ fontSize: 12, fontWeight: "600", color: "#dc2626" }}>
-              Opt Out of Match
-            </Text>
-          </TouchableOpacity>
-        )}
+        {/* Opt-out API not shipped — avoid fake success (beta). */}
 
-        {/* Bottom Row */}
         <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center flex-1">
-            <LucideIcon name="Calendar" size={14} color="#6B7280" />
-            <Text style={{ fontSize: 13, color: "#6B7280", marginLeft: 6, marginRight: 12 }}>
-              {formatDate(match.matchDate)}
-            </Text>
-            {match.location && (
-              <Text style={{ fontSize: 13, color: "#6B7280", flex: 1 }} numberOfLines={1}>
-                {match.location}
-              </Text>
-            )}
-          </View>
-
-          {/* Like Button */}
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation?.();
-              handleLike();
-            }}
-            disabled={isLiking}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: 10,
-              backgroundColor: isLiked ? "rgba(37,99,235,0.08)" : "rgba(107,114,128,0.06)",
-            }}
+          <Pressable
+            onPress={openMatchDetails}
+            style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.7 : 1 })}
+            accessibilityRole="button"
+            accessibilityLabel="Open match details"
           >
-            <LucideIcon
-              name="Heart"
-              size={14}
-              color={isLiked ? "#2563eb" : "#6B7280"}
-              fill={isLiked ? "#2563eb" : "transparent"}
-            />
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: "600",
-                color: isLiked ? "#2563eb" : "#6B7280",
-              }}
-            >
-              {likesCount}
-            </Text>
-          </TouchableOpacity>
+            <View className="flex-row items-center flex-1">
+              <LucideIcon name="Calendar" size={14} color={metaMuted} />
+              <Text style={{ fontSize: 13, color: metaMuted, marginLeft: 6, marginRight: 12 }}>
+                {formatDate(match.matchDate)}
+              </Text>
+              {match.location ? (
+                <Text style={{ fontSize: 13, color: metaMuted, flex: 1 }} numberOfLines={1}>
+                  {match.location}
+                </Text>
+              ) : null}
+            </View>
+          </Pressable>
+
+          <MatchLikeButton
+            isLiked={isLiked}
+            likesCount={likesCount}
+            isLiking={isLiking}
+            canToggle={canToggle}
+            onLike={() => void handleLike()}
+            readOnlyWhenDisabled
+          />
         </View>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }

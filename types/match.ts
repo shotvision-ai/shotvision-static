@@ -25,6 +25,10 @@ export interface Match {
   playerBGender?: MatchParticipantGender;
   status: MatchStatus;
   matchDate: string; // ISO date
+  /** API `createdAt` — fallback for 48h edit window when `finishedAt` is omitted on list payloads. */
+  createdAt?: string;
+  /** Set when status is finished (API `finishedAt`); used for 48h edit window. */
+  finishedAt?: string | null;
   location?: string;
   isPublic: boolean;
   sets: MatchSet[];
@@ -33,6 +37,8 @@ export interface Match {
   scheduledDate?: string; // ISO date for scheduled matches
   likesCount?: number;
   isLiked?: boolean;
+  /** Whether the current user has reported this match (explore / detail when API provides it). */
+  isReported?: boolean;
 }
 
 export interface UserProfile {

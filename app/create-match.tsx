@@ -1,8 +1,17 @@
 import { useState } from "react";
-import { View, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Stack, useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
+import { useTheme } from "~/theming/ThemeProvider";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
@@ -16,14 +25,41 @@ import { matchService, CreateMatchInput } from "../src/services/api/matchService
 import { formatMatchSaveError } from "../src/services/api/matchFormErrors";
 import { AppError } from "../src/services/api/apiErrors";
 import { devLog } from "../src/utils/devLog";
+import {
+  canCompleteMatchWithScores,
+  completeMatchValidationMessage,
+} from "../src/utils/matchCompletion";
+import { useMatchVisibilityStore } from "../src/stores/matchVisibilityStore";
+import { useAuth } from "../src/context/AuthContext";
+import {
+  invalidateMyMatchesExploreCache,
+  recordMatchOwnership,
+} from "../src/utils/matchOwnership";
+import { seedMatchVisibilityFromMatch } from "../src/utils/matchVisibility";
+import { scheduledSaveBlockedMessage } from "../src/utils/matchScheduledLifecycle";
+import {
+  DEFAULT_LIVE_MATCH_SETS,
+  setsForMatchWrite,
+} from "../src/utils/matchSetsPayload";
+import { combineMatchDateAndTime } from "../src/utils/matchDateTime";
 
 const BLUE = "#2563eb";
+const PURPLE = "#7c3aed";
 
 export default function CreateMatch() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
-
+  const { theme } = useTheme();
+  const isDark = theme.name === "dark";
+  const cardBg = theme.colors.card ?? theme.colors.background;
+  const mutedBg = theme.colors.muted ?? (isDark ? "hsl(240 3.7% 15.9%)" : "#f9fafb");
+  const borderColor = theme.colors.border ?? (isDark ? "hsl(240 3.7% 20%)" : "rgba(0,0,0,0.07)");
+  const iconMuted = theme.colors.mutedForeground ?? "#9ca3af";
+  const scoreTextColor = theme.colors.foreground ?? (isDark ? "#f9fafb" : "#1f2937");
+  const playersCardBg = isDark ? "rgba(37, 99, 235, 0.12)" : "rgba(37, 99, 235, 0.04)";
+  const playersCardBorder = isDark ? "rgba(37, 99, 235, 0.28)" : "rgba(37, 99, 235, 0.15)";
+  const dividerLine = isDark ? "rgba(37, 99, 235, 0.28)" : "rgba(37, 99, 235, 0.15)";
+  const { user } = useAuth();
   const [playerA, setPlayerA] = useState("");
   const [playerB, setPlayerB] = useState("");
   const [matchDate, setMatchDate] = useState(new Date());
@@ -32,7 +68,7 @@ export default function CreateMatch() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [location, setLocation] = useState("");
   const [isScheduled, setIsScheduled] = useState(false);
-  const [sets, setSets] = useState<MatchSet[]>([{ playerAScore: 0, playerBScore: 0 }]);
+  const [sets, setSets] = useState<MatchSet[]>(DEFAULT_LIVE_MATCH_SETS);
   const [notes, setNotes] = useState("");
   const [isPublic, setIsPublic] = useState(false);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
@@ -62,50 +98,84 @@ export default function CreateMatch() {
     if (sets.length > 1) setSets(sets.filter((_, i) => i !== index));
   };
 
-  const calculateWinner = (): "playerA" | "playerB" | undefined => {
-    let a = 0,
-      b = 0;
-    sets.forEach((set) => {
-      if (set.playerAScore > set.playerBScore) a++;
-      else if (set.playerBScore > set.playerAScore) b++;
-    });
-    if (a > b) return "playerA";
-    if (b > a) return "playerB";
-    return undefined;
+  const canComplete = canCompleteMatchWithScores(playerA, playerB, sets);
+
+  const handleScheduledToggle = (checked: boolean) => {
+    setIsScheduled(checked);
+    if (checked) {
+      setSets([]);
+    } else if (sets.length === 0) {
+      setSets(DEFAULT_LIVE_MATCH_SETS);
+    }
   };
 
-  const canComplete =
-    playerA.trim() !== "" &&
-    playerB.trim() !== "" &&
-    sets.length > 0 &&
-    sets.every((set) => set.playerAScore > 0 || set.playerBScore > 0) &&
-    calculateWinner() !== undefined;
-
   const handleSubmit = async (status: "live" | "scheduled" | "completed") => {
+    if (isSubmitting) return;
+
     if (playerA.trim() === "" || playerB.trim() === "") {
       Alert.alert("Validation Error", "Please enter both player names.");
       return;
     }
 
+    if (status === "completed") {
+      const validationMsg = completeMatchValidationMessage(playerA, playerB, sets);
+      if (validationMsg) {
+        Alert.alert("Cannot complete match", validationMsg);
+        return;
+      }
+    }
+
+    if (status === "scheduled") {
+      const blocked = scheduledSaveBlockedMessage(sets);
+      if (blocked) {
+        Alert.alert("Can't save as Scheduled", blocked);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
+      const matchDateIso = combineMatchDateAndTime(matchDate, matchTime).toISOString();
+      const writeSets = setsForMatchWrite(sets, status);
+
       const input = {
         playerA,
         playerB,
-        matchDate: matchDate.toISOString(),
+        matchDate: matchDateIso,
         location,
         isPublic,
-        sets,
+        sets: writeSets,
         notes,
+        status,
       };
 
+      let created;
       if (status === "completed") {
-        const created = await matchService.createMatch({ ...input, status: "live" });
-        await matchService.finishMatch(created.id);
+        const liveInput = {
+          ...input,
+          status: "live" as const,
+          sets: setsForMatchWrite(sets, "live"),
+        };
+        const initial = await matchService.createMatch(liveInput);
+        // Use the authoritative post-finish details returned by completeMatch so that
+        // isPublic and creatorId reflect what the backend actually stored.
+        created = await matchService.completeMatch(initial.id, liveInput);
       } else {
-        await matchService.createMatch({ ...input, status });
+        created = await matchService.createMatch(input);
       }
 
+      const ownerId = user?.id?.trim() || created.creatorId?.trim();
+      if (ownerId && created.id) {
+        recordMatchOwnership(created.id, ownerId);
+      }
+
+      // isPublic: prefer the API response; fall back to the user's intent (isPublic state).
+      seedMatchVisibilityFromMatch({
+        ...created,
+        isPublic: Boolean(created.isPublic || isPublic),
+      });
+      invalidateMyMatchesExploreCache();
+      useMatchVisibilityStore.getState().markAllListsStale();
       router.replace("/(tabs)/dashboard");
     } catch (error: unknown) {
       if (__DEV__) {
@@ -121,29 +191,105 @@ export default function CreateMatch() {
   };
 
   const handleLive = () => handleSubmit(isScheduled ? "scheduled" : "live");
-  const handleComplete = () => handleSubmit("completed");
+  const handleComplete = () => {
+    const validationMsg = completeMatchValidationMessage(playerA, playerB, sets);
+    if (validationMsg) {
+      Alert.alert("Cannot complete match", validationMsg);
+      return;
+    }
+    Alert.alert(
+      "Complete match?",
+      "Final scores will be saved and this match will be marked as finished.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Save & Complete", onPress: () => void handleSubmit("completed") },
+      ]
+    );
+  };
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom", "left", "right"]}>
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingTop: 8 + androidTopOffset,
-          paddingBottom: 140 + insets.bottom,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        {/* Same shell as Edit Match: JS header reserves top inset; KAV gets remaining height */}
+        <View
+          style={{
+            paddingTop: insets.top,
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+            backgroundColor: theme.colors.background,
+          }}
+        >
+          <View
+            style={{
+              height: 56,
+              flexDirection: "row",
+              alignItems: "center",
+              paddingHorizontal: 4,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={{
+                padding: 8,
+                marginLeft: 4,
+                minWidth: 44,
+                minHeight: 44,
+                justifyContent: "center",
+              }}
+            >
+              <LucideIcon name="ChevronLeft" size={26} color={theme.colors.foreground} />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  fontFamily: theme.typography.h2?.fontFamily,
+                  color: theme.colors.foreground,
+                }}
+                numberOfLines={1}
+              >
+                Create Match
+              </Text>
+            </View>
+
+            <View style={{ width: 44 }} />
+          </View>
+        </View>
+
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 56 : 0}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              paddingHorizontal: 20,
+              paddingTop: 8,
+              paddingBottom: Math.max(insets.bottom, 24) + 16,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
         {/* Section 1: Players */}
         <View className="mb-8">
           <Text className="text-h3 font-semibold text-foreground mb-4">Players</Text>
           {/* Players visual card */}
           <View
             style={{
-              backgroundColor: "rgba(37, 99, 235, 0.04)",
+              backgroundColor: playersCardBg,
               borderRadius: 20,
               borderWidth: 1,
-              borderColor: "rgba(37, 99, 235, 0.15)",
+              borderColor: playersCardBorder,
               padding: 16,
             }}
           >
@@ -155,7 +301,7 @@ export default function CreateMatch() {
                     width: 32,
                     height: 32,
                     borderRadius: 16,
-                    backgroundColor: playerA ? BLUE : "#e5e7eb",
+                    backgroundColor: playerA ? BLUE : mutedBg,
                     alignItems: "center",
                     justifyContent: "center",
                   }}
@@ -165,7 +311,7 @@ export default function CreateMatch() {
                       {playerA.charAt(0).toUpperCase()}
                     </Text>
                   ) : (
-                    <LucideIcon name="User" size={16} color="#9ca3af" />
+                    <LucideIcon name="User" size={16} color={iconMuted} />
                   )}
                 </View>
                 <Text className="text-body font-semibold text-foreground">Player A</Text>
@@ -184,7 +330,7 @@ export default function CreateMatch() {
 
             {/* VS divider */}
             <View className="flex-row items-center gap-3 my-2">
-              <View style={{ flex: 1, height: 1, backgroundColor: "rgba(37, 99, 235, 0.15)" }} />
+              <View style={{ flex: 1, height: 1, backgroundColor: dividerLine }} />
               <View
                 style={{
                   width: 36,
@@ -197,7 +343,7 @@ export default function CreateMatch() {
               >
                 <Text style={{ fontSize: 12, fontWeight: "800", color: "#ffffff" }}>VS</Text>
               </View>
-              <View style={{ flex: 1, height: 1, backgroundColor: "rgba(37, 99, 235, 0.15)" }} />
+              <View style={{ flex: 1, height: 1, backgroundColor: dividerLine }} />
             </View>
 
             {/* Player B */}
@@ -208,7 +354,7 @@ export default function CreateMatch() {
                     width: 32,
                     height: 32,
                     borderRadius: 16,
-                    backgroundColor: playerB ? "#7c3aed" : "#e5e7eb",
+                    backgroundColor: playerB ? PURPLE : mutedBg,
                     alignItems: "center",
                     justifyContent: "center",
                   }}
@@ -218,7 +364,7 @@ export default function CreateMatch() {
                       {playerB.charAt(0).toUpperCase()}
                     </Text>
                   ) : (
-                    <LucideIcon name="User" size={16} color="#9ca3af" />
+                    <LucideIcon name="User" size={16} color={iconMuted} />
                   )}
                 </View>
                 <Text className="text-body font-semibold text-foreground">Player B</Text>
@@ -250,7 +396,7 @@ export default function CreateMatch() {
                 className="flex-row items-center justify-between bg-background border border-input rounded-xl px-4 py-3"
               >
                 <Text className="text-body text-foreground">{formatDate(matchDate)}</Text>
-                <LucideIcon name="Calendar" size={20} color="#666" />
+                <LucideIcon name="Calendar" size={20} color={iconMuted} />
               </TouchableOpacity>
             </View>
             <View>
@@ -262,7 +408,7 @@ export default function CreateMatch() {
                 className="flex-row items-center justify-between bg-background border border-input rounded-xl px-4 py-3"
               >
                 <Text className="text-body text-foreground">{matchTime}</Text>
-                <LucideIcon name="Clock" size={20} color="#666" />
+                <LucideIcon name="Clock" size={20} color={iconMuted} />
               </TouchableOpacity>
             </View>
             <View>
@@ -283,7 +429,7 @@ export default function CreateMatch() {
                   Mark as scheduled for later
                 </Text>
               </View>
-              <Switch checked={isScheduled} onCheckedChange={setIsScheduled} />
+              <Switch checked={isScheduled} onCheckedChange={handleScheduledToggle} />
             </View>
           </View>
         </View>
@@ -301,7 +447,9 @@ export default function CreateMatch() {
                       paddingHorizontal: 10,
                       paddingVertical: 4,
                       borderRadius: 8,
-                      backgroundColor: "rgba(37, 99, 235, 0.1)",
+                      backgroundColor: isDark
+                        ? "rgba(37, 99, 235, 0.2)"
+                        : "rgba(37, 99, 235, 0.1)",
                       maxWidth: 120,
                     }}
                   >
@@ -320,7 +468,7 @@ export default function CreateMatch() {
                       paddingHorizontal: 10,
                       paddingVertical: 4,
                       borderRadius: 8,
-                      backgroundColor: "rgba(124, 58, 237, 0.1)",
+                      backgroundColor: isDark ? "rgba(124, 58, 237, 0.2)" : "rgba(124, 58, 237, 0.1)",
                       maxWidth: 120,
                     }}
                   >
@@ -329,7 +477,7 @@ export default function CreateMatch() {
                       style={{
                         fontSize: 12,
                         fontWeight: "600",
-                        color: "#7c3aed",
+                        color: PURPLE,
                         textAlign: "center",
                       }}
                     >
@@ -344,15 +492,15 @@ export default function CreateMatch() {
                 <View
                   key={index}
                   style={{
-                    backgroundColor: "#ffffff",
+                    backgroundColor: cardBg,
                     borderRadius: 14,
                     borderWidth: 1.5,
-                    borderColor: "rgba(0,0,0,0.07)",
+                    borderColor,
                     paddingVertical: 10,
                     paddingHorizontal: 14,
                     shadowColor: "#000",
                     shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
+                    shadowOpacity: isDark ? 0.2 : 0.05,
                     shadowRadius: 4,
                     elevation: 1,
                   }}
@@ -383,16 +531,20 @@ export default function CreateMatch() {
                           borderRadius: 10,
                           backgroundColor:
                             set.playerAScore > set.playerBScore
-                              ? "rgba(37, 99, 235, 0.08)"
-                              : "#f9fafb",
+                              ? isDark
+                                ? "rgba(37, 99, 235, 0.2)"
+                                : "rgba(37, 99, 235, 0.08)"
+                              : mutedBg,
                           borderWidth: 1.5,
-                          borderColor: set.playerAScore > set.playerBScore ? BLUE : "#e5e7eb",
+                          borderColor:
+                            set.playerAScore > set.playerBScore ? BLUE : borderColor,
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
                         <Input
                           placeholder="0"
+                          placeholderTextColor={iconMuted}
                           value={set.playerAScore === 0 ? "" : set.playerAScore.toString()}
                           onChangeText={(value) => updateSet(index, "playerAScore", value)}
                           keyboardType="numeric"
@@ -402,11 +554,12 @@ export default function CreateMatch() {
                             fontWeight: "700",
                             textAlign: "center",
                             width: 50,
+                            color: scoreTextColor,
                           }}
                         />
                       </View>
 
-                      <Text style={{ fontSize: 16, fontWeight: "600", color: "#9ca3af" }}>–</Text>
+                      <Text style={{ fontSize: 16, fontWeight: "600", color: iconMuted }}>–</Text>
 
                       {/* Player B score */}
                       <View
@@ -416,16 +569,20 @@ export default function CreateMatch() {
                           borderRadius: 10,
                           backgroundColor:
                             set.playerBScore > set.playerAScore
-                              ? "rgba(124, 58, 237, 0.08)"
-                              : "#f9fafb",
+                              ? isDark
+                                ? "rgba(124, 58, 237, 0.2)"
+                                : "rgba(124, 58, 237, 0.08)"
+                              : mutedBg,
                           borderWidth: 1.5,
-                          borderColor: set.playerBScore > set.playerAScore ? "#7c3aed" : "#e5e7eb",
+                          borderColor:
+                            set.playerBScore > set.playerAScore ? PURPLE : borderColor,
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
                         <Input
                           placeholder="0"
+                          placeholderTextColor={iconMuted}
                           value={set.playerBScore === 0 ? "" : set.playerBScore.toString()}
                           onChangeText={(value) => updateSet(index, "playerBScore", value)}
                           keyboardType="numeric"
@@ -435,6 +592,7 @@ export default function CreateMatch() {
                             fontWeight: "700",
                             textAlign: "center",
                             width: 50,
+                            color: scoreTextColor,
                           }}
                         />
                       </View>
@@ -488,7 +646,7 @@ export default function CreateMatch() {
           />
         </View>
 
-        {/* Section 5: Privacy */}
+        {/* Section 5: Privacy — scrolls with form */}
         <View className="mb-8">
           <Text className="text-h3 font-semibold text-foreground mb-4">Privacy</Text>
           <View className="flex-row items-center justify-between py-2">
@@ -498,86 +656,89 @@ export default function CreateMatch() {
                 <TouchableOpacity
                   onPress={() => setShowInfoTooltip(!showInfoTooltip)}
                   className="p-1"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Public match info"
                 >
-                  <LucideIcon name="Info" size={16} color="#999" />
+                  <LucideIcon name="Info" size={16} color={iconMuted} />
                 </TouchableOpacity>
               </View>
               <Text className="text-caption text-muted-foreground mt-0.5">
                 Public matches appear in Explore
               </Text>
+              {showInfoTooltip ? (
+                <Text className="text-caption text-muted-foreground mt-2 leading-5">
+                  Other players can find and like your match in Explore. Private matches stay on My
+                  Matches only.
+                </Text>
+              ) : null}
             </View>
             <Switch checked={isPublic} onCheckedChange={setIsPublic} />
           </View>
         </View>
-      </ScrollView>
 
-      {/* Bottom Buttons */}
-      <View
-        className="absolute bottom-0 left-0 right-0 bg-background border-t border-border px-5 py-4"
-        style={{
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
-          elevation: 8,
-          paddingBottom: 16 + insets.bottom,
-        }}
-      >
-        {playerA && playerB && (
-          <View className="mb-3 pb-3 border-b border-border/40">
-            <Text className="text-caption text-muted-foreground/70 mb-0.5">Match Preview</Text>
-            <Text className="text-body font-semibold text-foreground">
-              {playerA} vs {playerB}
-            </Text>
-          </View>
-        )}
-        <View className="gap-3">
-          {isScheduled ? (
-            <Button 
-              onPress={handleLive} 
-              size="lg" 
-              style={{ backgroundColor: BLUE }}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text className="text-button text-white">Save as Scheduled</Text>
-              )}
-            </Button>
-          ) : (
-            <>
-              <Button 
-                onPress={handleLive} 
-                size="lg" 
+        {/* Actions — scroll with form; safe-area padding on ScrollView content */}
+        <View className="mt-2 pt-6 border-t border-border">
+          {playerA && playerB ? (
+            <View className="mb-4 pb-4 border-b border-border/40">
+              <Text className="text-caption text-muted-foreground/70 mb-0.5">Match Preview</Text>
+              <Text className="text-body font-semibold text-foreground">
+                {playerA} vs {playerB}
+              </Text>
+            </View>
+          ) : null}
+          <View className="gap-3">
+            {isScheduled ? (
+              <Button
+                onPress={handleLive}
+                size="lg"
                 style={{ backgroundColor: BLUE }}
                 disabled={isSubmitting}
+                accessibilityLabel="Save as scheduled match"
               >
                 {isSubmitting ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text className="text-button text-white">Save as Live</Text>
+                  <Text className="text-button text-white">Save as Scheduled</Text>
                 )}
               </Button>
-              <Button
-                onPress={handleComplete}
-                size="lg"
-                variant="outline"
-                disabled={!canComplete || isSubmitting}
-                className={!canComplete || isSubmitting ? "opacity-50" : ""}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color={BLUE} />
-                ) : (
-                  <Text className="text-button text-foreground">Save & Complete</Text>
-                )}
-              </Button>
-            </>
-          )}
+            ) : (
+              <>
+                <Button
+                  onPress={handleLive}
+                  size="lg"
+                  style={{ backgroundColor: BLUE }}
+                  disabled={isSubmitting}
+                  accessibilityLabel="Save as live match"
+                >
+                  {isSubmitting ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-button text-white">Save as Live</Text>
+                  )}
+                </Button>
+                <Button
+                  onPress={handleComplete}
+                  size="lg"
+                  variant="outline"
+                  disabled={!canComplete || isSubmitting}
+                  className={!canComplete || isSubmitting ? "opacity-50" : ""}
+                  accessibilityLabel="Save and complete match"
+                >
+                  {isSubmitting ? (
+                    <ActivityIndicator color={BLUE} />
+                  ) : (
+                    <Text className="text-button text-foreground">Save & Complete</Text>
+                  )}
+                </Button>
+              </>
+            )}
+          </View>
         </View>
-      </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
 
-      <CalendarPicker
+        <CalendarPicker
         visible={showDatePicker}
         selectedDate={matchDate}
         onConfirm={(date) => {
@@ -596,7 +757,8 @@ export default function CreateMatch() {
           setShowTimePicker(false);
         }}
         onCancel={() => setShowTimePicker(false)}
-      />
-    </SafeAreaView>
+        />
+      </View>
+    </>
   );
 }

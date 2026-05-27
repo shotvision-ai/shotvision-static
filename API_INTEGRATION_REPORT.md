@@ -89,7 +89,7 @@
 | Notifications | Real HTTP to undocumented API; fails until backend ships |
 | Profile calendar | Decorative UI; no match-day API |
 | FAQ / Help / Feedback | Static / mailto |
-| Match report modal (explore) | Local UI; no report API in contract |
+| Match report (explore) | Wired to `POST/DELETE /api/matches/{id}/report` + `GET /api/users/me/reports`; SecureStore cache when list APIs omit `reportedByMe` |
 | Default avatars | Local preference when no `profileImage` URL |
 | Profile share link | Ad-hoc URL (not from backend) |
 

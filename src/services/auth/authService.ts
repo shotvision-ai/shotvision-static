@@ -2,8 +2,12 @@ import { apiClient } from "../api/apiClient";
 import { authSession } from "./authSession";
 import { firebaseAuthService, FirebaseAuthResult } from "./firebaseAuthService";
 import { AppError } from "../api/apiErrors";
-import { signOutGoogle } from "../google/signInWithGoogle";
 import { normalizeLoginPayload, type LoginResponse } from "./loginPayload";
+import { postAuthLoginWithRetry, type AuthLoginAttemptListener } from "./authLoginRequest";
+import {
+  performFullSignOut,
+  rollbackFailedLoginAttempt,
+} from "./clearAuthState";
 import { devLog } from "../../utils/devLog";
 
 export type { LoginResponse };
@@ -15,7 +19,10 @@ const syncAccessToken = (token: string | null) => apiClient.setAccessToken(token
  * Token persistence and refresh are owned by `authSession`.
  */
 export const authService = {
-  async loginWithGoogle(googleResponse: unknown): Promise<LoginResponse["user"] | null> {
+  async loginWithGoogle(
+    googleResponse: unknown,
+    options?: { onBackendAttempt?: AuthLoginAttemptListener }
+  ): Promise<LoginResponse["user"] | null> {
     try {
       const firebaseResult: FirebaseAuthResult | null =
         await firebaseAuthService.handleGoogleLoginResponse(googleResponse);
@@ -24,9 +31,10 @@ export const authService = {
         return null;
       }
 
-      const rawLogin = await apiClient.post<unknown>("/api/auth/login", {
-        firebaseToken: firebaseResult.firebaseToken,
-      });
+      const rawLogin = await postAuthLoginWithRetry(
+        { firebaseToken: firebaseResult.firebaseToken },
+        options?.onBackendAttempt
+      );
       const loginData = normalizeLoginPayload(rawLogin);
 
       await authSession.persistSession(
@@ -41,30 +49,24 @@ export const authService = {
       return loginData.user;
     } catch (error) {
       devLog.error("[authService] login failed:", error);
+      await rollbackFailedLoginAttempt();
       if (error instanceof AppError) throw error;
       throw new AppError("Failed to complete login with backend", 500, "LOGIN_FAILURE");
     }
   },
 
+  /** Standard sign-out (keeps Google account cached for faster next sign-in). */
   async logout(): Promise<void> {
-    try {
-      const refreshToken = await authSession.getRefreshTokenForLogout();
-      if (refreshToken) {
-        try {
-          await apiClient.post<null>("/api/auth/logout", { refreshToken });
-        } catch (error) {
-          devLog.warn("[authService] backend logout failed (clearing local anyway):", error);
-        }
-      }
+    await performFullSignOut({ notifyBackend: true, revokeGoogleAccess: false, reason: "logout" });
+  },
 
-      await signOutGoogle();
-      await firebaseAuthService.signOut();
-      await authSession.invalidateSession("logout", syncAccessToken);
-    } catch (error) {
-      devLog.error("[authService] logout failed:", error);
-      await authSession.invalidateSession("logout", syncAccessToken);
-      throw new AppError("Failed to logout correctly", 500, "LOGOUT_FAILURE");
-    }
+  /** After account deletion — revoke Google access so the next sign-in is predictable. */
+  async logoutAfterAccountDeletion(): Promise<void> {
+    await performFullSignOut({
+      notifyBackend: false,
+      revokeGoogleAccess: true,
+      reason: "account_deleted",
+    });
   },
 
   /** @deprecated Prefer authStore.bootstrap — kept for direct service calls. */
@@ -98,7 +100,7 @@ export const authService = {
       }
 
       const firebaseResult = await firebaseAuthService.verifyOtp(sessionInfo, otp);
-      const raw = await apiClient.post<unknown>("/api/auth/login", {
+      const raw = await postAuthLoginWithRetry({
         firebaseToken: firebaseResult.firebaseToken,
       });
       const loginData = normalizeLoginPayload(raw);
@@ -115,6 +117,7 @@ export const authService = {
       return loginData.user;
     } catch (error: unknown) {
       devLog.error("[authService] OTP verification failed:", error);
+      await rollbackFailedLoginAttempt();
       if (error instanceof AppError) {
         if (error.statusCode === 400) {
           throw new AppError("The verification code is invalid or has expired", 400, "INVALID_OTP");

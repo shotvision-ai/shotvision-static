@@ -48,10 +48,10 @@ export function getNotificationLoadFailureUI(
       };
     }
 
-    if (statusCode === 404) {
+    if (statusCode === 404 || statusCode === 501 || statusCode === 503) {
       return {
-        title: "No notification list yet",
-        detail: `${hi}This feature may not be turned on for your account yet. Pull to refresh in a little while.`,
+        title: "Notifications coming soon",
+        detail: `${hi}Alerts aren't available on the server yet. Check back after a future app update.`,
         iconName: "Bell",
         iconColor: "#94a3b8",
       };

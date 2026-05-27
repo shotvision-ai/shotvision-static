@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, TouchableOpacity, Modal, ScrollView } from "react-native";
 import { Text } from "~/components/ui/text";
 import { Button } from "~/components/ui/button";
+import { useAppTheming } from "../../src/hooks/useAppTheming";
 
 interface TimePickerProps {
   visible: boolean;
@@ -11,6 +12,7 @@ interface TimePickerProps {
 }
 
 export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimePickerProps) {
+  const { colors, brand, isDark } = useAppTheming();
   const [hour, setHour] = useState(parseInt(selectedTime.split(":")[0]) || 14);
   const [minute, setMinute] = useState(parseInt(selectedTime.split(":")[1]) || 0);
 
@@ -22,11 +24,13 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
     onConfirm(formattedTime);
   };
 
+  const headerBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0, 0, 0, 0.08)";
+
   return (
     <Modal visible={visible} transparent={true} animationType="fade" onRequestClose={onCancel}>
       <View
         className="flex-1 justify-center items-center"
-        style={{ backgroundColor: "rgba(0, 0, 0, 0.6)" }}
+        style={{ backgroundColor: colors.modalOverlay }}
       >
         <TouchableOpacity
           activeOpacity={1}
@@ -37,7 +41,7 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
         <View
           style={{
             width: 300,
-            backgroundColor: "#ffffff",
+            backgroundColor: colors.card,
             borderRadius: 24,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 8 },
@@ -46,25 +50,22 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
             elevation: 10,
           }}
         >
-          {/* Header */}
           <View
             style={{
               paddingHorizontal: 24,
               paddingVertical: 20,
               borderBottomWidth: 1,
-              borderBottomColor: "rgba(0, 0, 0, 0.08)",
+              borderBottomColor: headerBorder,
             }}
           >
             <Text
-              style={{ fontSize: 17, fontWeight: "600", color: "#1f2937", textAlign: "center" }}
+              style={{ fontSize: 17, fontWeight: "600", color: colors.foreground, textAlign: "center" }}
             >
               Select Time
             </Text>
           </View>
 
-          {/* Time Picker */}
           <View style={{ flexDirection: "row", paddingVertical: 20, height: 200 }}>
-            {/* Hours */}
             <ScrollView
               style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
@@ -74,11 +75,15 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
                 <TouchableOpacity
                   key={h}
                   onPress={() => setHour(h)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${h} hours`}
+                  accessibilityState={{ selected: hour === h }}
                   style={{
+                    minHeight: 44,
                     paddingVertical: 12,
                     paddingHorizontal: 16,
                     borderRadius: 8,
-                    backgroundColor: hour === h ? "#2563eb" : "transparent",
+                    backgroundColor: hour === h ? brand.blue : "transparent",
                     marginBottom: 4,
                   }}
                 >
@@ -86,7 +91,7 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
                     style={{
                       fontSize: 16,
                       fontWeight: hour === h ? "600" : "400",
-                      color: hour === h ? "#ffffff" : "#1f2937",
+                      color: hour === h ? colors.onPrimary : colors.foreground,
                       textAlign: "center",
                     }}
                   >
@@ -96,10 +101,8 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
               ))}
             </ScrollView>
 
-            {/* Separator */}
-            <View style={{ width: 2, backgroundColor: "#e5e7eb", marginVertical: 20 }} />
+            <View style={{ width: 2, backgroundColor: colors.border, marginVertical: 20 }} />
 
-            {/* Minutes */}
             <ScrollView
               style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
@@ -109,11 +112,15 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
                 <TouchableOpacity
                   key={m}
                   onPress={() => setMinute(m)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${m} minutes`}
+                  accessibilityState={{ selected: minute === m }}
                   style={{
+                    minHeight: 44,
                     paddingVertical: 12,
                     paddingHorizontal: 16,
                     borderRadius: 8,
-                    backgroundColor: minute === m ? "#2563eb" : "transparent",
+                    backgroundColor: minute === m ? brand.blue : "transparent",
                     marginBottom: 4,
                   }}
                 >
@@ -121,7 +128,7 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
                     style={{
                       fontSize: 16,
                       fontWeight: minute === m ? "600" : "400",
-                      color: minute === m ? "#ffffff" : "#1f2937",
+                      color: minute === m ? colors.onPrimary : colors.foreground,
                       textAlign: "center",
                     }}
                   >
@@ -132,7 +139,6 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
             </ScrollView>
           </View>
 
-          {/* Actions */}
           <View
             style={{
               flexDirection: "row",
@@ -143,14 +149,14 @@ export function TimePicker({ visible, selectedTime, onConfirm, onCancel }: TimeP
             }}
           >
             <Button variant="outline" onPress={onCancel} className="flex-1 rounded-xl">
-              <Text style={{ fontSize: 15, fontWeight: "600", color: "#1f2937" }}>Cancel</Text>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>Cancel</Text>
             </Button>
             <Button
               onPress={handleConfirm}
               className="flex-1 rounded-xl"
-              style={{ backgroundColor: "#2563eb" }}
+              style={{ backgroundColor: brand.blue }}
             >
-              <Text style={{ fontSize: 15, fontWeight: "600", color: "#ffffff" }}>OK</Text>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.onPrimary }}>OK</Text>
             </Button>
           </View>
         </View>

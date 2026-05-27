@@ -319,7 +319,7 @@ Partial-update the current user's profile. All fields are optional; omitted fiel
 
 #### Response `body.data`
 
-Same shape as `GET /api/users/me` (`UserProfileResponse`).
+Same shape as `GET /api/users/me` (`UserProfileResponse`). The server may also return `null` or a partial object (e.g. updated fields only, without `userId`). Clients must merge the request payload with the prior profile and preserve `userId` / `email` from the session.
 
 ---
 
@@ -387,7 +387,7 @@ Retrieve the current user's overall match statistics.
 | `totalMatches` | long | All-time count |
 | `wins` | long | |
 | `losses` | long | |
-| `winRate` | double | 0.0–1.0 |
+| `winRate` | double | **Must be** 0.0–1.0 (e.g. `0.6667` = 66.67%). Do **not** send 0–100 (e.g. `66.67`) — clients defensively normalize, but values &gt; 1 cause incorrect UI if unnormalized. Prefer `wins / (wins + losses)` for finished outcomes. |
 | `streak` | int | Current win/loss streak (positive = win streak) |
 | `monthlyPerformance` | `MonthlyPerformancePoint[]` | Recent months |
 
@@ -399,7 +399,7 @@ Retrieve the current user's overall match statistics.
 | `totalMatches` | long | |
 | `wins` | long | |
 | `losses` | long | |
-| `winRate` | double | 0.0–1.0 |
+| `winRate` | double | 0.0–1.0 fraction (same rules as overall `winRate` above) |
 
 ---
 
@@ -482,6 +482,8 @@ See [`MatchDetailsResponse`](#matchdetailsresponse) in §10.
 
 Partially update a match. All fields are optional; omitted or `null` fields are not changed.
 
+**Finished matches (`FINISHED`):** The product allows the match owner to edit scores, notes, location, visibility (`isPublic`), and player names for **48 hours after `finishedAt`**. Clients must **not** send `status` on PATCH for an already-finished match (e.g. do not send `LIVE`). Partial PATCH bodies must include **only** fields being changed (do not send `isPublic: false` or empty `sets` when updating notes alone). The server rejects attempts to change status or modify finished matches outside the edit window with an error such as `"Finished matches cannot be modified."`
+
 **Path param:** `matchId` — UUID
 
 #### Request Body
@@ -527,6 +529,8 @@ Soft-delete a match. The match is hidden from queries but data is retained. Owne
 ### POST `/api/matches/{matchId}/finish`
 
 Mark a match as finished and calculate the winner from current set scores.
+
+**Client flow (Save & Complete):** PATCH match fields and set scores (typically `status: LIVE` for `SCHEDULED`/`LIVE` matches), then call this endpoint. The app uses `matchService.completeMatch()` which PATCHes then POSTs `/finish`, then GETs match details for the authoritative `FINISHED` state.
 
 **Path param:** `matchId` — UUID
 
@@ -585,11 +589,25 @@ Paginated feed of all public matches (across all users).
 }
 ```
 
+> **UI sync note:** Explore items expose `likesCount` but not `likedByMe`. The client stores
+> `likedByMe` after toggle and merges on refresh. **Recommended:** add `likedByMe` (and optionally
+> `organizerId` / `createdBy`) so the feed can disable self-likes without inferring ownership.
+
 ---
 
 ### GET `/api/matches/my`
 
 Paginated list of the current user's own matches.
+
+> **UI sync note:** `MatchDashboardItem` does not include `notes`, `finishedAt`, or `creatorId`.
+> The client enriches list rows with the viewer as organizer and uses `createdAt` as a fallback for
+> the 48h post-finish edit window. **Recommended:** add `notes`, `finishedAt`, and `creatorId` to
+> dashboard items for accurate list/detail sync without client inference.
+
+> **UI sync note:** `MatchDashboardItem` does not include `likesCount` or `likedByMe`. The mobile/web
+> client keeps per-match like snapshots after a successful like/unlike and merges them on list
+> refresh. **Recommended backend improvement:** add `likesCount` and `likedByMe` to dashboard items
+> so counts survive cold start without client-side overrides.
 
 **Query params:**
 
@@ -659,6 +677,70 @@ Unlike a match.
   "likedByMe":  false
 }
 ```
+
+---
+
+### POST `/api/matches/{matchId}/report`
+
+Submit a moderation report for a public match (authenticated users).
+
+**Path param:** `matchId` — UUID
+
+#### Request Body
+
+```json
+{
+  "reason": "Incorrect or fabricated match score",
+  "notes":  "Optional additional context"
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `reason` | string | ✅ | Non-blank |
+| `notes` | string | ❌ | Max 500 chars |
+
+#### Response `body.data`
+
+```json
+{
+  "matchId":      "550e8400-...",
+  "reportedByMe": true
+}
+```
+
+---
+
+### DELETE `/api/matches/{matchId}/report`
+
+Withdraw the current user's report for a match.
+
+**Path param:** `matchId` — UUID
+
+#### Response `body.data`
+
+```json
+{
+  "matchId":      "550e8400-...",
+  "reportedByMe": false
+}
+```
+
+---
+
+### GET `/api/users/me/reports`
+
+List match IDs the current user has reported (for client sync after refresh).
+
+#### Response `body.data`
+
+```json
+{
+  "matchIds": ["550e8400-...", "660e8400-..."]
+}
+```
+
+> **UI note:** Explore/detail items may also include `reportedByMe` per match when available. Clients merge this endpoint with local confirmed-report cache.
 
 ---
 

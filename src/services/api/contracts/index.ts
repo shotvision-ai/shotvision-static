@@ -8,3 +8,4 @@ export * from "./auth.types";
 export * from "./user.types";
 export * from "./match.types";
 export * from "./upload.types";
+export * from "./report.types";

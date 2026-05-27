@@ -143,7 +143,11 @@ class ApiClient {
     try {
       logApiRequest(method, url.toString(), includeAuth && !!this.accessToken);
 
-      const response = await fetchWithTimeout(url.toString(), init, DEFAULT_API_REQUEST_TIMEOUT_MS);
+      const response = await fetchWithTimeout(
+        url.toString(),
+        init,
+        options.timeoutMs ?? DEFAULT_API_REQUEST_TIMEOUT_MS
+      );
 
       if (
         response.status === 401 &&

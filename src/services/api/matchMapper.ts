@@ -1,4 +1,5 @@
 import { Match, MatchParticipantGender, MatchSet, MatchStatus } from "../../../types/match";
+import { coalesceProfileImageUrl } from "../../utils/profileImageUrl";
 import { AppError } from "./apiErrors";
 
 function mapStatus(raw: unknown): MatchStatus {
@@ -36,6 +37,14 @@ function optionalUserId(raw: unknown): string | undefined {
   return s || undefined;
 }
 
+function mapMatchImage(r: Record<string, unknown>, ...keys: string[]): string {
+  const candidates = keys.map((k) => {
+    const v = r[k];
+    return typeof v === "string" ? v : undefined;
+  });
+  return coalesceProfileImageUrl(...candidates) ?? "";
+}
+
 function mapSets(raw: unknown): MatchSet[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((row) => {
@@ -65,16 +74,51 @@ export function normalizeMatch(raw: unknown): Match {
 
   return {
     id,
-    creatorId: String(r.creatorId ?? r.createdBy ?? r.organizerId ?? ""),
+    creatorId:
+      optionalUserId(
+        r.creatorId ??
+          r.createdBy ??
+          r.organizerId ??
+          r.organizer_id ??
+          r.createdByUserId ??
+          r.ownerId ??
+          r.userId
+      ) ?? "",
     creatorName: String(r.creatorName ?? r.organizerName ?? ""),
-    creatorImage: String(r.creatorImage ?? r.creator_image ?? ""),
+    creatorImage: mapMatchImage(
+      r,
+      "creatorImage",
+      "creator_image",
+      "organizerImage",
+      "organizer_image",
+      "organizerProfileImage",
+      "createdByProfileImage"
+    ),
     creatorGender: mapParticipantGender(
       r.creatorGender ?? r.creator_gender ?? r.organizerGender ?? r.organizer_gender
     ),
     playerA,
-    playerAImage: String(r.playerAImage ?? r.player_a_image ?? r.playerAProfileImage ?? ""),
+    playerAImage: mapMatchImage(
+      r,
+      "playerAImage",
+      "player_a_image",
+      "playerAProfileImage",
+      "player1ProfileImage",
+      "player1Image",
+      "player1_profile_image",
+      "p1ProfileImage"
+    ),
     playerB,
-    playerBImage: String(r.playerBImage ?? r.player_b_image ?? r.playerBProfileImage ?? ""),
+    playerBImage: mapMatchImage(
+      r,
+      "playerBImage",
+      "player_b_image",
+      "playerBProfileImage",
+      "player2ProfileImage",
+      "player2Image",
+      "player2_profile_image",
+      "p2ProfileImage"
+    ),
     playerAUserId: optionalUserId(
       r.playerAUserId ?? r.playerAId ?? r.player1Id ?? r.player1UserId ?? r.player_a_id
     ),
@@ -89,6 +133,18 @@ export function normalizeMatch(raw: unknown): Match {
     ),
     status: mapStatus(r.status),
     matchDate: String(r.matchDate ?? r.match_date ?? r.createdAt ?? new Date().toISOString()),
+    createdAt:
+      typeof r.createdAt === "string"
+        ? r.createdAt
+        : typeof r.created_at === "string"
+          ? r.created_at
+          : undefined,
+    finishedAt:
+      typeof r.finishedAt === "string"
+        ? r.finishedAt
+        : typeof r.finished_at === "string"
+          ? r.finished_at
+          : null,
     location: typeof r.location === "string" ? r.location : undefined,
     isPublic: Boolean(r.isPublic ?? r.public ?? false),
     sets,
@@ -102,7 +158,33 @@ export function normalizeMatch(raw: unknown): Match {
           ? r.likes_count
           : undefined,
     isLiked: Boolean(r.isLiked ?? r.likedByMe ?? r.liked ?? false),
+    isReported: Boolean(r.isReported ?? r.reportedByMe ?? r.reported_by_me ?? r.reported ?? false),
   };
+}
+
+/**
+ * Maps GET `/api/matches/explore` rows (ExploreMatchItem — no `isPublic` field; feed is public-only).
+ */
+export function normalizeExploreMatch(raw: unknown): Match {
+  const base = normalizeMatch(raw);
+  return { ...base, isPublic: true };
+}
+
+/** Maps explore list items; skips invalid rows instead of failing the whole list. */
+export function normalizeExploreMatchList(raw: unknown[]): Match[] {
+  const out: Match[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    try {
+      let m = normalizeExploreMatch(raw[i]);
+      if (!m.id.trim()) {
+        m = { ...m, id: `match-${i}` };
+      }
+      out.push(m);
+    } catch {
+      // skip invalid row
+    }
+  }
+  return out;
 }
 
 /** Maps list items; skips invalid rows instead of failing the whole list. */

@@ -6,15 +6,23 @@ import type { SessionInvalidationReason } from "../services/auth/authSession";
 interface AuthContextType {
   user: UserProfile | null;
   isLoading: boolean;
+  isAuthenticating: boolean;
   isAuthenticated: boolean;
   isHydrated: boolean;
   lastInvalidationReason: SessionInvalidationReason | null;
-  login: (googleResponse: unknown) => Promise<void>;
+  login: (
+    googleResponse: unknown,
+    options?: { onBackendAttempt?: (attempt: number, maxAttempts: number) => void }
+  ) => Promise<void>;
   loginWithOtp: (identifier: string, otp: string) => Promise<void>;
   sendOtp: (identifier: string, method: "email" | "mobile") => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccountAndSignOut: () => Promise<void>;
   restoreSession: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  refreshUser: (options?: {
+    invalidateOnAuthError?: boolean;
+    swallowError?: boolean;
+  }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,6 +34,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const isAuthenticating = useAuthStore((s) => s.isAuthenticating);
   const isHydrated = useAuthStore((s) => s.isHydrated);
   const lastInvalidationReason = useAuthStore((s) => s.lastInvalidationReason);
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -35,6 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithOtp = useAuthStore((s) => s.loginWithOtp);
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const logout = useAuthStore((s) => s.logout);
+  const deleteAccountAndSignOut = useAuthStore((s) => s.deleteAccountAndSignOut);
 
   useEffect(() => {
     const unbind = bindAuthSessionToStore();
@@ -46,6 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     () => ({
       user,
       isLoading,
+      isAuthenticating,
       isAuthenticated: !!user,
       isHydrated,
       lastInvalidationReason,
@@ -53,18 +64,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loginWithOtp,
       sendOtp,
       logout,
+      deleteAccountAndSignOut,
       restoreSession,
       refreshUser,
     }),
     [
       user,
       isLoading,
+      isAuthenticating,
       isHydrated,
       lastInvalidationReason,
       login,
       loginWithOtp,
       sendOtp,
       logout,
+      deleteAccountAndSignOut,
       restoreSession,
       refreshUser,
     ]

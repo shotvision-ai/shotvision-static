@@ -34,7 +34,18 @@ function splitBlobMessage(message: string): string[] {
   return lines;
 }
 
+function isFinishedMatchLockedMessage(message: string): boolean {
+  return /finished matches cannot be modified/i.test(message);
+}
+
 function linesFromAppError(error: AppError): string[] {
+  if (isFinishedMatchLockedMessage(error.message)) {
+    return [
+      "This finished match can't be updated with a status change.",
+      "Save your score and note changes only, or try again within 48 hours of completion.",
+    ];
+  }
+
   if (error.errors?.length) {
     const out: string[] = [];
     for (const detail of error.errors) {
@@ -54,6 +65,10 @@ function lineFromDetail(detail: ApiErrorDetail): string {
 
   if (/must be/i.test(line) && /SCHEDULED|LIVE|FINISHED|IN_PROGRESS/.test(line)) {
     return "Pick a valid match status (live, scheduled, or finished).";
+  }
+
+  if (/scheduled matches should have empty sets/i.test(line)) {
+    return "Scheduled matches can't include scores. Turn off Scheduled or clear the score section.";
   }
 
   return line.endsWith(".") ? line : `${line}.`;

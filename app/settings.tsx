@@ -1,14 +1,13 @@
-import { useState, useEffect } from "react";
-import { View, ScrollView, TouchableOpacity, Alert, Platform, ActivityIndicator } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useState } from "react";
+import { View, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Stack, useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
 import { useColorScheme } from "~/lib/useColorScheme";
 import { useAuth } from "../src/context/AuthContext";
 import { profileService } from "../src/services/api/profileService";
-import { authService } from "../src/services/auth/authService";
 import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErrors";
 import * as WebBrowser from "expo-web-browser";
 import { PRIVACY_POLICY_URL } from "../src/constants/legalUrls";
@@ -19,8 +18,7 @@ type ThemeMode = "light" | "dark" | "system";
 export default function Settings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, logout } = useAuth();
-  const androidTopOffset = Platform.OS === "android" ? 32 : 0;
+  const { user, logout, deleteAccountAndSignOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { setColorScheme } = useColorScheme();
   const rowIconColor = theme.colors.mutedForeground ?? "#6b7280";
@@ -102,8 +100,11 @@ export default function Settings() {
         text: "Logout",
         style: "default",
         onPress: async () => {
-          await logout();
-          router.replace("/login");
+          try {
+            await logout();
+          } finally {
+            router.replace("/login");
+          }
         },
       },
     ]);
@@ -121,8 +122,7 @@ export default function Settings() {
           onPress: async () => {
             try {
               setIsUpdating(true);
-              await profileService.deleteAccount();
-              await authService.logout();
+              await deleteAccountAndSignOut();
               router.replace("/login");
             } catch (error) {
               Alert.alert(
@@ -141,16 +141,70 @@ export default function Settings() {
   if (!user) return null;
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingTop: 8 + androidTopOffset,
-          paddingBottom: 100 + insets.bottom,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        {/* JS header: sits below the status bar using insets.top directly (FAQ pattern) */}
+        <View
+          style={{
+            paddingTop: insets.top,
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+            backgroundColor: theme.colors.background,
+          }}
+        >
+          <View
+            style={{
+              height: 56,
+              flexDirection: "row",
+              alignItems: "center",
+              paddingHorizontal: 4,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              style={{
+                padding: 8,
+                marginLeft: 4,
+                minWidth: 44,
+                minHeight: 44,
+                justifyContent: "center",
+              }}
+            >
+              <LucideIcon name="ChevronLeft" size={26} color={theme.colors.foreground} />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "600",
+                  fontFamily: theme.typography.h2?.fontFamily,
+                  color: theme.colors.foreground,
+                }}
+                numberOfLines={1}
+              >
+                Settings
+              </Text>
+            </View>
+
+            <View style={{ width: 44 }} />
+          </View>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 8,
+            paddingBottom: 40 + insets.bottom,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
         {/* Appearance Section */}
         <View className="mb-5">
           <Text
@@ -179,6 +233,9 @@ export default function Settings() {
             {/* Dark Mode */}
             <TouchableOpacity
               onPress={() => handleThemeChange("dark")}
+              accessibilityRole="button"
+              accessibilityLabel="Dark mode"
+              accessibilityState={{ selected: selectedTheme === "dark" }}
               className="flex-row items-center justify-between px-4 py-4 border-b border-border/10"
             >
               <View className="flex-row items-center gap-3">
@@ -195,6 +252,9 @@ export default function Settings() {
             {/* Light Mode */}
             <TouchableOpacity
               onPress={() => handleThemeChange("light")}
+              accessibilityRole="button"
+              accessibilityLabel="Light mode"
+              accessibilityState={{ selected: selectedTheme === "light" }}
               className="flex-row items-center justify-between px-4 py-4 border-b border-border/10"
             >
               <View className="flex-row items-center gap-3">
@@ -211,6 +271,9 @@ export default function Settings() {
             {/* System Default */}
             <TouchableOpacity
               onPress={() => handleThemeChange("system")}
+              accessibilityRole="button"
+              accessibilityLabel="System default theme"
+              accessibilityState={{ selected: selectedTheme === "system" }}
               className="flex-row items-center justify-between px-4 py-4"
             >
               <View className="flex-row items-center gap-3">
@@ -438,19 +501,24 @@ export default function Settings() {
             {/* Permanent account deletion */}
             <TouchableOpacity
               onPress={handleDeleteAccount}
-              className="flex-row items-center px-4 py-4 min-h-[52px]"
+              className="flex-row items-center gap-3 px-4 py-4 min-h-[52px]"
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel="Delete Account"
             >
               <LucideIcon name="Trash2" size={20} color="#dc2626" />
-              <Text className="text-body font-semibold text-red-600 ml-3 flex-1 shrink" numberOfLines={2}>
+              <Text
+                className="text-body font-semibold"
+                style={{ color: "#dc2626" }}
+                numberOfLines={1}
+              >
                 Delete Account
               </Text>
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </View>
+    </>
   );
 }

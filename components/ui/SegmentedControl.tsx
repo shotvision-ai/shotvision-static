@@ -35,6 +35,9 @@ export function SegmentedControl({ options, selectedValue, onChange }: Segmented
           <TouchableOpacity
             key={option.value}
             onPress={() => onChange(option.value)}
+            accessibilityRole="button"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected: isSelected }}
             style={{
               flex: 1,
               borderRadius: 10,

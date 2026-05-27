@@ -91,6 +91,7 @@ export interface MatchDetailsResponse {
   notes: string | null;
   likesCount: number;
   likedByMe: boolean;
+  reportedByMe?: boolean;
 }
 
 export interface ExploreMatchItem {
@@ -103,6 +104,8 @@ export interface ExploreMatchItem {
   p2SetsWon: number;
   createdAt: string;
   likesCount: number;
+  /** When present, whether the requesting user has reported this match. */
+  reportedByMe?: boolean;
 }
 
 export interface MatchDashboardItem {
