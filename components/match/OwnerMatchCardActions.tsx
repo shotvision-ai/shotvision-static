@@ -6,7 +6,8 @@ import type { Match } from "~/types/match";
 import {
   isMatchEditableByCreator,
   isMatchOwner,
-  type MatchEditEligibilityOptions,
+  resolveMatchEditOwnerOptions,
+  resolveMatchLifecycleFields,
 } from "~/src/utils/matchEditEligibility";
 import { canOwnerCompleteMatch } from "~/src/utils/matchCompletion";
 import { getEditMatchNotesHref } from "~/src/utils/matchNotes";
@@ -32,23 +33,24 @@ export function OwnerMatchCardActions({
 }: OwnerMatchCardActionsProps) {
   const router = useRouter();
   const { colors, brand } = useAppTheming();
-  const ownerOptions: MatchEditEligibilityOptions | undefined = isOwnDashboardMatch
-    ? { isOwnDashboardMatch: true }
-    : undefined;
+  const resolvedMatch = resolveMatchLifecycleFields(match);
+  const ownerOptions =
+    resolveMatchEditOwnerOptions(resolvedMatch, currentUserId) ??
+    (isOwnDashboardMatch ? { isOwnDashboardMatch: true } : undefined);
 
-  if (!isMatchOwner(match, currentUserId, ownerOptions)) {
+  if (!isMatchOwner(resolvedMatch, currentUserId, ownerOptions)) {
     return null;
   }
 
-  const editWindow = isMatchEditableByCreator(match, currentUserId, ownerOptions);
+  const editWindow = isMatchEditableByCreator(resolvedMatch, currentUserId, ownerOptions);
 
-  const showCompleteAction = canOwnerCompleteMatch(match, currentUserId, ownerOptions);
+  const showCompleteAction = canOwnerCompleteMatch(resolvedMatch, currentUserId, ownerOptions);
 
   return (
     <View>
-      {match.status === "scheduled" ? (
+      {resolvedMatch.status === "scheduled" ? (
         <TouchableOpacity
-          onPress={() => router.push(getEditMatchHref(match.id))}
+          onPress={() => router.push(getEditMatchHref(resolvedMatch.id))}
           hitSlop={STANDARD_HIT_SLOP}
           accessibilityRole="button"
           accessibilityLabel="Start scheduled match as live"
@@ -73,7 +75,7 @@ export function OwnerMatchCardActions({
 
       {showCompleteAction ? (
         <TouchableOpacity
-          onPress={() => router.push(getEditMatchCompleteHref(match.id))}
+          onPress={() => router.push(getEditMatchCompleteHref(resolvedMatch.id))}
           hitSlop={STANDARD_HIT_SLOP}
           accessibilityRole="button"
           accessibilityLabel="Save and complete match"
@@ -108,11 +110,11 @@ export function OwnerMatchCardActions({
           }}
         >
           <TouchableOpacity
-            onPress={() => router.push(getEditMatchHref(match.id))}
+            onPress={() => router.push(getEditMatchHref(resolvedMatch.id))}
             hitSlop={STANDARD_HIT_SLOP}
             accessibilityRole="button"
             accessibilityLabel={
-              match.status === "live" || match.status === "scheduled"
+              resolvedMatch.status === "live" || resolvedMatch.status === "scheduled"
                 ? "Edit match"
                 : "Edit score"
             }
@@ -134,7 +136,7 @@ export function OwnerMatchCardActions({
             <Text style={{ fontSize: 12, fontWeight: "600", color: "#2563eb" }}>Edit Score</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => router.push(getEditMatchNotesHref(match.id))}
+            onPress={() => router.push(getEditMatchNotesHref(resolvedMatch.id))}
             hitSlop={STANDARD_HIT_SLOP}
             accessibilityRole="button"
             accessibilityLabel="Edit match notes"
@@ -155,7 +157,7 @@ export function OwnerMatchCardActions({
             <LucideIcon name="StickyNote" size={14} color="#f59e0b" />
             <Text style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}>Notes</Text>
           </TouchableOpacity>
-          {match.status === "completed" ? (
+          {resolvedMatch.status === "completed" ? (
             <View
               style={{
                 paddingHorizontal: 8,

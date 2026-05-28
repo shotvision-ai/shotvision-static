@@ -108,7 +108,7 @@ plugins.push(
 module.exports = {
   name: "ShotVision",
   slug: "shotvision",
-  version: "5.0.10",
+  version: "5.0.11",
   scheme: "shotvision",
 
   /** Passed to the app at runtime (see src/config/googleOAuth.ts). Env overrides google-services defaults. */
@@ -147,14 +147,14 @@ module.exports = {
 
   ios: {
     supportsTablet: true,
-    buildNumber: "10",
+    buildNumber: "11",
     bundleIdentifier: "com.shotvision.app",
   },
 
   android: {
     package: "com.shotvision.app",
     ...(googleServicesFile ? { googleServicesFile } : {}),
-    versionCode: 10,
+    versionCode: 11,
 
     intentFilters: [
       {

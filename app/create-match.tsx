@@ -33,6 +33,7 @@ import { useMatchVisibilityStore } from "../src/stores/matchVisibilityStore";
 import { useAuth } from "../src/context/AuthContext";
 import {
   invalidateMyMatchesExploreCache,
+  seedMyMatchesExploreCacheItem,
   recordMatchOwnership,
 } from "../src/utils/matchOwnership";
 import { seedMatchVisibilityFromMatch } from "../src/utils/matchVisibility";
@@ -178,11 +179,16 @@ export default function CreateMatch() {
           matchId: created.id,
         });
       }
-      seedMatchVisibilityFromMatch({
+      const createdForCache = {
         ...created,
         isPublic: resolvedPublic,
-      });
+        ...(ownerId ? { creatorId: ownerId } : {}),
+      };
+      seedMatchVisibilityFromMatch(createdForCache);
       invalidateMyMatchesExploreCache();
+      if (resolvedPublic && user?.id) {
+        seedMyMatchesExploreCacheItem(user.id, createdForCache);
+      }
       useMatchVisibilityStore.getState().markAllListsStale();
       router.replace("/(tabs)/dashboard");
     } catch (error: unknown) {

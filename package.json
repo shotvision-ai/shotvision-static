@@ -1,6 +1,6 @@
 {
   "name": "Shot-Vision",
-  "version": "5.0.10",
+  "version": "5.0.11",
   "main": "index.js",
   "scripts": {
     "run": "expo run",

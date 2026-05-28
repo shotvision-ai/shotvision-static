@@ -70,8 +70,18 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
         let response: PaginatedResponse<Match>;
 
         if (type === "explore") {
-          await ensureMatchOwnershipSynced(user?.id, refresh ? { force: true } : undefined);
-          response = await matchService.getExploreMatches(pageNum, limit, status);
+          const ownershipSync = ensureMatchOwnershipSynced(
+            user?.id,
+            refresh ? { force: true } : undefined
+          ).catch((err) => {
+            devLog.warn("[useMatches:explore] ownership sync failed (continuing):", err);
+          });
+
+          const [exploreResponse] = await Promise.all([
+            matchService.getExploreMatches(pageNum, limit, status),
+            ownershipSync,
+          ]);
+          response = exploreResponse;
         } else {
           response = await matchService.getMyMatches(pageNum, limit, status);
         }

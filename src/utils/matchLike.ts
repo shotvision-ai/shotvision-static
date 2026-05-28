@@ -4,6 +4,7 @@ import {
   getMatchLikeSnapshot,
   useMatchLikeStore,
   type LikeApiContext,
+  type LikeApiPayload,
   type MatchLikeSnapshot,
 } from "../stores/matchLikeStore";
 import { devLog } from "./devLog";
@@ -47,6 +48,32 @@ export function normalizeLikeResponse(raw: unknown, fallbackMatchId: string): Li
   };
 }
 
+/** Whether the API row explicitly included a liked-by-me field (vs mapper default false). */
+export function matchRowProvidesLikedByMe(raw: Record<string, unknown>): boolean {
+  return (
+    "likedByMe" in raw ||
+    "liked_by_me" in raw ||
+    "isLiked" in raw ||
+    "liked" in raw
+  );
+}
+
+export function buildLikeApiPayloadFromMatch(
+  match: Match,
+  raw?: Record<string, unknown>
+): LikeApiPayload {
+  const likesCount =
+    typeof match.likesCount === "number" && !Number.isNaN(match.likesCount)
+      ? match.likesCount
+      : undefined;
+  const likedByMeProvided = raw ? matchRowProvidesLikedByMe(raw) : false;
+  return {
+    likesCount,
+    isLiked: match.isLiked,
+    likedByMeProvided,
+  };
+}
+
 export function resolveMatchLikeFields(
   match: Match,
   override?: MatchLikeSnapshot | null
@@ -62,27 +89,34 @@ export function resolveMatchLikeFields(
 }
 
 /** Reconcile centralized store from a list/detail API row, then return merged match for list state. */
-export function hydrateMatchLikeFromApi(match: Match, context: LikeApiContext): Match {
+export function hydrateMatchLikeFromApi(
+  match: Match,
+  context: LikeApiContext,
+  raw?: Record<string, unknown>
+): Match {
   if (!isValidMatchIdForApi(match.id)) return match;
-  useMatchLikeStore.getState().reconcileFromApi(
-    match.id,
-    {
-      likesCount: match.likesCount,
-      isLiked: match.isLiked,
-    },
-    context
-  );
+  useMatchLikeStore.getState().reconcileFromApi(match.id, buildLikeApiPayloadFromMatch(match, raw), context);
   return applyMatchLikeOverrides(match);
 }
 
-export function hydrateMatchLikeListFromApi(matches: Match[], context: LikeApiContext): Match[] {
-  return matches.map((m) => hydrateMatchLikeFromApi(m, context));
+export function hydrateMatchLikeListFromApi(
+  matches: Match[],
+  context: LikeApiContext,
+  rawItems?: unknown[]
+): Match[] {
+  return matches.map((m, index) => {
+    const raw =
+      rawItems?.[index] != null && typeof rawItems[index] === "object"
+        ? (rawItems[index] as Record<string, unknown>)
+        : undefined;
+    return hydrateMatchLikeFromApi(m, context, raw);
+  });
 }
 
 /** Persist authoritative like fields from GET match details into the centralized store. */
-export function seedMatchLikeFromMatch(match: Match): void {
+export function seedMatchLikeFromMatch(match: Match, raw?: Record<string, unknown>): void {
   if (!isValidMatchIdForApi(match.id)) return;
-  hydrateMatchLikeFromApi(match, "detail");
+  hydrateMatchLikeFromApi(match, "detail", raw);
 }
 
 export function applyMatchLikeOverrides(match: Match): Match {

@@ -31,8 +31,10 @@ import { devLog } from "../../src/utils/devLog";
 import {
   isMatchEditableByCreator,
   isMatchOwner,
+  isFinishedMatchEditWindowExpired,
   isFinishedMatchWithinEditWindow,
   resolveMatchEditOwnerOptions,
+  resolveMatchLifecycleFields,
 } from "../../src/utils/matchEditEligibility";
 import { getEditMatchHref } from "../../src/utils/matchLifecycle";
 import { getEditMatchNotesHref } from "../../src/utils/matchNotes";
@@ -131,13 +133,13 @@ export default function MatchDetail() {
 
       try {
         await ensureMatchOwnershipSynced(currentUser?.id);
-        const raw = await matchService.getMatchDetails(id);
+        const { match: rawMatch, raw: rawPayload } = await matchService.getMatchDetailsWithRaw(id);
         if (requestId !== fetchSeqRef.current) {
           devLog.info("[match-detail] stale response discarded", { requestId });
           return;
         }
-        const owned = enrichMatchForViewer(raw, currentUser?.id);
-        const withLikes = hydrateMatchLikeFromApi(owned, "detail");
+        const owned = enrichMatchForViewer(rawMatch, currentUser?.id);
+        const withLikes = hydrateMatchLikeFromApi(owned, "detail", rawPayload);
         const data = applyMatchVisibilityOverrides(withLikes);
         syncMatchOwnershipFromMatches([data]);
         if (data.creatorId) {
@@ -193,24 +195,42 @@ export default function MatchDetail() {
   // ── Stable derived ownership / eligibility ──────────────────────────────────
   // Computed here so they're consistent across every callsite in this render.
 
+  const lifecycleMatch = useMemo(
+    () => (match ? resolveMatchLifecycleFields(match) : null),
+    [match]
+  );
+
   const ownerOptions = useMemo(
-    () => (match ? resolveMatchEditOwnerOptions(match, currentUser?.id) : undefined),
-    [match, currentUser?.id]
+    () =>
+      lifecycleMatch ? resolveMatchEditOwnerOptions(lifecycleMatch, currentUser?.id) : undefined,
+    [lifecycleMatch, currentUser?.id]
   );
 
   const isCreator = useMemo(
-    () => (match ? isMatchOwner(match, currentUser?.id, ownerOptions) : false),
-    [match, currentUser?.id, ownerOptions]
+    () =>
+      lifecycleMatch ? isMatchOwner(lifecycleMatch, currentUser?.id, ownerOptions) : false,
+    [lifecycleMatch, currentUser?.id, ownerOptions]
   );
 
   const isEditable = useMemo(
-    () => isMatchEditableByCreator(match, currentUser?.id, ownerOptions),
-    [match, currentUser?.id, ownerOptions]
+    () => isMatchEditableByCreator(lifecycleMatch, currentUser?.id, ownerOptions),
+    [lifecycleMatch, currentUser?.id, ownerOptions]
   );
 
   const isWithinEditWindow = useMemo(
-    () => (match?.status === "completed" ? isFinishedMatchWithinEditWindow(match) : false),
-    [match]
+    () =>
+      lifecycleMatch?.status === "completed"
+        ? isFinishedMatchWithinEditWindow(lifecycleMatch)
+        : false,
+    [lifecycleMatch]
+  );
+
+  const isEditWindowExpired = useMemo(
+    () =>
+      lifecycleMatch?.status === "completed"
+        ? isFinishedMatchEditWindowExpired(lifecycleMatch)
+        : false,
+    [lifecycleMatch]
   );
 
   const canEditNotes = isEditable;
@@ -699,15 +719,19 @@ export default function MatchDetail() {
                 </View>
               ) : null}
 
-              {match.status === "completed" && match.finishedAt ? (
+              {match.status === "completed" ? (
                 <View className="flex-row items-center">
                   <LucideIcon name="CircleCheck" size={20} className="text-muted-foreground mr-3" />
                   <View className="flex-1">
                     <Text className="text-caption text-muted-foreground mb-0.5">Finished</Text>
                     <Text className="text-body font-medium text-foreground">
-                      {formatMatchDate(match.finishedAt)}
+                      {lifecycleMatch?.finishedAt
+                        ? formatMatchDate(lifecycleMatch.finishedAt)
+                        : "Completion time unavailable"}
                       {isWithinEditWindow ? (
                         <Text className="text-caption text-muted-foreground"> · editable within 48h</Text>
+                      ) : isEditWindowExpired ? (
+                        <Text className="text-caption text-muted-foreground"> · edit window closed</Text>
                       ) : null}
                     </Text>
                   </View>

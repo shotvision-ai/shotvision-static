@@ -6,7 +6,7 @@ export const FINISHED_MATCH_EDIT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Anchor for the 48h window — only `finishedAt` (completion time), per API contract.
- * List payloads often omit `finishedAt`; callers treat a missing anchor as "unknown" (not expired).
+ * List payloads often omit `finishedAt`; session ownership cache may supply it after detail load.
  */
 export function getFinishedMatchEditAnchor(
   match: Pick<Match, "finishedAt">
@@ -17,16 +17,43 @@ export function getFinishedMatchEditAnchor(
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Merge `creatorId` / `finishedAt` from the ownership cache when list rows omit them.
+ * Call before any edit-eligibility or owner-action rendering.
+ */
+export function resolveMatchLifecycleFields(match: Match): Match {
+  const snap = getMatchOwnershipSnapshot(match.id);
+  const creatorId = match.creatorId?.trim() || snap?.creatorId?.trim() || match.creatorId;
+  const finishedAt =
+    match.finishedAt != null && String(match.finishedAt).trim() !== ""
+      ? match.finishedAt
+      : snap?.finishedAt ?? match.finishedAt;
+
+  if (creatorId === match.creatorId && finishedAt === match.finishedAt) {
+    return match;
+  }
+  return { ...match, creatorId, finishedAt };
+}
+
 export function isFinishedMatchWithinEditWindow(
   match: Pick<Match, "status" | "finishedAt">
 ): boolean {
   if (match.status !== "completed") return false;
   const anchor = getFinishedMatchEditAnchor(match);
   if (!anchor) {
-    // Don't block when the API omitted finishedAt on list rows — server enforces on PATCH.
+    // No completion timestamp on row — allow entry; edit screen loads detail and re-checks.
     return true;
   }
   return Date.now() - anchor.getTime() <= FINISHED_MATCH_EDIT_WINDOW_MS;
+}
+
+export function isFinishedMatchEditWindowExpired(
+  match: Pick<Match, "status" | "finishedAt">
+): boolean {
+  if (match.status !== "completed") return false;
+  const anchor = getFinishedMatchEditAnchor(match);
+  if (!anchor) return false;
+  return Date.now() - anchor.getTime() > FINISHED_MATCH_EDIT_WINDOW_MS;
 }
 
 export type MatchEditEligibilityOptions = {
@@ -41,14 +68,15 @@ export function resolveMatchEditOwnerOptions(
   match: Pick<Match, "id" | "creatorId">,
   currentUserId: string | null | undefined
 ): MatchEditEligibilityOptions | undefined {
+  const resolved = resolveMatchLifecycleFields(match as Match);
   const viewerId = currentUserId?.trim();
   if (!viewerId) return undefined;
 
-  if (match.creatorId?.trim() === viewerId) {
+  if (resolved.creatorId?.trim() === viewerId) {
     return { isOwnDashboardMatch: true };
   }
 
-  const snap = getMatchOwnershipSnapshot(match.id);
+  const snap = getMatchOwnershipSnapshot(resolved.id);
   if (snap?.creatorId === viewerId) {
     return { isOwnDashboardMatch: true };
   }
@@ -61,24 +89,28 @@ export function isMatchOwner(
   currentUserId: string | null | undefined,
   options?: MatchEditEligibilityOptions
 ): boolean {
+  const resolved =
+    match.id?.trim() ? resolveMatchLifecycleFields(match as Match) : (match as Match);
   const viewerId = currentUserId?.trim();
   if (!viewerId) return false;
   if (options?.isOwnDashboardMatch) return true;
-  if (match.creatorId?.trim() === viewerId) return true;
-  const matchId = match.id?.trim();
+  if (resolved.creatorId?.trim() === viewerId) return true;
+  const matchId = resolved.id?.trim();
   if (!matchId) return false;
   const snap = getMatchOwnershipSnapshot(matchId);
   return snap?.creatorId === viewerId;
 }
 
 export function isMatchEditableByCreator(
-  match: Pick<Match, "status" | "matchDate" | "finishedAt" | "creatorId"> | null | undefined,
+  match: Pick<Match, "id" | "status" | "matchDate" | "finishedAt" | "creatorId"> | null | undefined,
   currentUserId: string | null | undefined,
   options?: MatchEditEligibilityOptions
 ): boolean {
-  if (!match || !isMatchOwner(match, currentUserId, options)) return false;
-  if (match.status === "live" || match.status === "scheduled") return true;
-  if (match.status === "completed") return isFinishedMatchWithinEditWindow(match);
+  if (!match) return false;
+  const resolved = resolveMatchLifecycleFields(match as Match);
+  if (!isMatchOwner(resolved, currentUserId, options)) return false;
+  if (resolved.status === "live" || resolved.status === "scheduled") return true;
+  if (resolved.status === "completed") return isFinishedMatchWithinEditWindow(resolved);
   return false;
 }
 
@@ -87,17 +119,17 @@ export function finishedMatchEditLockMessage(): string {
 }
 
 export function matchEditBlockedMessage(
-  match: Pick<Match, "status" | "finishedAt" | "creatorId"> | null | undefined,
+  match: Pick<Match, "id" | "status" | "finishedAt" | "creatorId"> | null | undefined,
   currentUserId: string | null | undefined,
   options?: MatchEditEligibilityOptions
 ): string {
   if (!match) return "Match not found.";
-  if (!isMatchOwner(match, currentUserId, options)) {
+  const resolved = resolveMatchLifecycleFields(match as Match);
+  if (!isMatchOwner(resolved, currentUserId, options)) {
     return "Only the match creator can edit this match.";
   }
-  if (match.status === "completed" && !isFinishedMatchWithinEditWindow(match)) {
+  if (resolved.status === "completed" && isFinishedMatchEditWindowExpired(resolved)) {
     return finishedMatchEditLockMessage();
   }
-  // live / scheduled owner: should always be editable — caller should not reach this.
   return "This match cannot be edited right now.";
 }

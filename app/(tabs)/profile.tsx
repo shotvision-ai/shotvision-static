@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useAuthStore } from "../../src/stores/authStore";
 import {
   View,
   ScrollView,
@@ -8,7 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Text } from "~/components/ui/text";
 import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import LucideIcon from "~/lib/icons/LucideIcon";
@@ -110,8 +111,16 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheming();
   const { user, isLoading, isHydrated, logout } = useAuth();
+  const refreshUser = useAuthStore((s) => s.refreshUser);
   const currentUserAvatar = useCurrentUserAvatarProps(user?.id);
   const { stats, isLoading: statsLoading, error: statsError, refresh: refreshStats } = useUserStats(!!user);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      void refreshUser({ swallowError: true });
+    }, [user?.id, refreshUser])
+  );
 
   const matches = stats?.totalMatches ?? 0;
   const wins = stats?.wins ?? 0;

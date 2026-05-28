@@ -92,7 +92,9 @@ export async function supplementExploreWithViewerPublicMatches(
       matchesExploreStatusFilter(m, status) &&
       !exploreIds.has(m.id.trim())
   );
-  const missing = applyMatchOwnershipList(candidates).sort(sortByMatchDateDesc);
+  const missing = applyMatchOwnershipList(candidates)
+    .map((m) => ({ ...m, isPublic: true }))
+    .sort(sortByMatchDateDesc);
 
   if (__DEV__ && missing.length > 0) {
     devLog.info(

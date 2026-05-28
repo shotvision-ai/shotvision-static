@@ -1,10 +1,13 @@
 import type { Match } from "../../types/match";
-import { matchService } from "../services/api/matchService";
+import { matchService, type MatchStatusFilter } from "../services/api/matchService";
+import { MATCH_API_MAX_PAGE_SIZE } from "./exploreApiDebug";
 import { enrichMyDashboardMatches } from "./enrichMyDashboardMatches";
+import { devLog } from "./devLog";
 import {
   getMatchOwnershipSnapshot,
   useMatchOwnershipStore,
 } from "../stores/matchOwnershipStore";
+import { resolveMatchLifecycleFields } from "./matchEditEligibility";
 
 let ownershipSyncedForUserId: string | null = null;
 let ownershipSyncPromise: Promise<void> | null = null;
@@ -23,6 +26,27 @@ export function invalidateMyMatchesExploreCache(): void {
   ownershipSyncedForUserId = null;
 }
 
+/**
+ * Optimistically add/update a row in the explore supplement cache (e.g. right after create).
+ * Lets Explore show a new public match before GET `/api/matches/explore` indexes it.
+ */
+export function seedMyMatchesExploreCacheItem(viewerUserId: string, match: Match): void {
+  const userId = viewerUserId.trim();
+  const matchId = match.id.trim();
+  if (!userId || !matchId) return;
+
+  const row = enrichMyDashboardMatches([{ ...match, isPublic: Boolean(match.isPublic) }], userId)[0];
+  if (!row) return;
+
+  if (!myMatchesExploreCache || myMatchesExploreCache.userId !== userId) {
+    myMatchesExploreCache = { userId, items: [row] };
+    return;
+  }
+
+  const items = myMatchesExploreCache.items.filter((m) => m.id.trim() !== matchId);
+  myMatchesExploreCache = { userId, items: [row, ...items] };
+}
+
 /** Recent GET `/api/matches/my` snapshot from ownership sync — avoids duplicate fetch when possible. */
 export function getMyMatchesCachedForExplore(viewerUserId: string): Match[] | null {
   const id = viewerUserId.trim();
@@ -30,6 +54,27 @@ export function getMyMatchesCachedForExplore(viewerUserId: string): Match[] | nu
     return null;
   }
   return myMatchesExploreCache.items;
+}
+
+/** Paginate GET `/api/matches/my` — API rejects `size` > 50. */
+async function fetchAllMyMatchesForExplore(
+  viewerUserId: string,
+  status: MatchStatusFilter = "all"
+): Promise<Match[]> {
+  const pageSize = MATCH_API_MAX_PAGE_SIZE;
+  const collected: Match[] = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore && page <= 20) {
+    const response = await matchService.getMyMatches(page, pageSize, status);
+    collected.push(...enrichMyDashboardMatches(response.items, viewerUserId));
+    hasMore = Boolean(response.hasNext);
+    page += 1;
+    if (response.items.length === 0) break;
+  }
+
+  return collected;
 }
 
 /**
@@ -49,11 +94,16 @@ export async function ensureMatchOwnershipSynced(
   }
 
   ownershipSyncPromise = (async () => {
-    const response = await matchService.getMyMatches(1, 100, "all");
-    const items = enrichMyDashboardMatches(response.items, id);
+    const items = await fetchAllMyMatchesForExplore(id, "all");
     syncMatchOwnershipFromMatches(items);
     myMatchesExploreCache = { userId: id, items };
     ownershipSyncedForUserId = id;
+    if (__DEV__) {
+      devLog.info("[explore:ownership-sync] cached my matches", {
+        count: items.length,
+        publicCount: items.filter((m) => m.isPublic).length,
+      });
+    }
   })();
 
   try {
@@ -98,7 +148,7 @@ export function enrichExploreMatches(
   items: Match[],
   viewerUserId: string | undefined
 ): Match[] {
-  const enriched = applyMatchOwnershipList(items);
+  const enriched = applyMatchOwnershipList(items).map(resolveMatchLifecycleFields);
   if (!viewerUserId?.trim()) return enriched;
   return enriched;
 }
@@ -107,13 +157,13 @@ export function enrichExploreMatches(
  * Detail/edit flows: apply ownership cache so creator checks work when the API omits `creatorId`.
  */
 export function enrichMatchForViewer(match: Match, viewerUserId: string | undefined): Match {
-  const owned = applyMatchOwnership(match);
+  let owned = resolveMatchLifecycleFields(applyMatchOwnership(match));
   const viewerId = viewerUserId?.trim();
   if (owned.creatorId?.trim() || !viewerId) return owned;
 
   const snap = getMatchOwnershipSnapshot(owned.id);
   if (snap?.creatorId === viewerId) {
-    return { ...owned, creatorId: viewerId };
+    owned = resolveMatchLifecycleFields({ ...owned, creatorId: viewerId });
   }
 
   return owned;

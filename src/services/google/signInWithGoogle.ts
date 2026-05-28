@@ -34,16 +34,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Prefer in-app browser OAuth on Android emulators (GMS often returns NETWORK_ERROR).
- * iOS simulator only if an iOS OAuth client is configured.
+ * Only force browser OAuth on iOS simulator (native SDK unavailable there without extra setup).
+ * Android emulator supports native Google Sign-In popup via GMS — don't force browser there.
  */
 export function shouldPreferBrowserGoogleSignIn(): boolean {
   if (Platform.OS === "web") return false;
-  if (!Device.isDevice) {
-    if (Platform.OS === "android") return true;
-    if (Platform.OS === "ios") {
-      return Boolean(getGoogleOAuthClientIds().iosClientId?.trim());
-    }
+  if (!Device.isDevice && Platform.OS === "ios") {
+    return Boolean(getGoogleOAuthClientIds().iosClientId?.trim());
   }
   return false;
 }

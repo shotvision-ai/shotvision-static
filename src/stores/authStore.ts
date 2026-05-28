@@ -123,13 +123,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   applyUserProfileUpdate: (profile: UserProfile) => {
     const { user, profileImageRevision } = get();
-    if (!user) return;
-    const imageChanged = profileImageUrlChanged(user.image, profile.image);
+    if (!user?.id?.trim()) return;
+    const next: UserProfile = {
+      ...profile,
+      id: user.id,
+      email: user.email,
+    };
+    const imageChanged = profileImageUrlChanged(user.image, next.image);
     set({
-      user: profile,
+      user: next,
       profileImageRevision: imageChanged ? profileImageRevision + 1 : profileImageRevision,
     });
-    devLog.info("[authStore] applyUserProfileUpdate", profileFieldsSnapshot(profile));
+    devLog.info("[authStore] applyUserProfileUpdate", profileFieldsSnapshot(next));
   },
 
   setUserProfileImage: (image: string | undefined) => {
