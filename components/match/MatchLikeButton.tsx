@@ -30,13 +30,14 @@ export function MatchLikeButton({
   const { colors, brand } = useAppTheming();
   const accent = brand.blue;
   const muted = colors.muted;
+  const displayCount = Math.max(0, likesCount);
 
   if (!canToggle && readOnlyWhenDisabled) {
     return (
       <View
         accessibilityRole="text"
         accessibilityLabel={
-          likesCount === 1 ? "1 like on your match" : `${likesCount} likes on your match`
+          displayCount === 1 ? "1 like on your match" : `${displayCount} likes on your match`
         }
         style={{
           flexDirection: "row",
@@ -49,29 +50,27 @@ export function MatchLikeButton({
         }}
       >
         <LucideIcon name="Heart" size={14} color={muted} />
-        <Text style={{ fontSize: 12, fontWeight: "600", color: muted }}>{likesCount}</Text>
+        <Text style={{ fontSize: 12, fontWeight: "600", color: muted }}>{displayCount}</Text>
       </View>
     );
   }
 
+  const interactive = canToggle && !isLiking;
+
   return (
     <Pressable
-      onPress={() => {
-        if (canToggle && !isLiking) {
-          onLike();
-        }
-      }}
-      disabled={isLiking || !canToggle}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      onPress={interactive ? onLike : undefined}
+      disabled={!interactive}
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       accessibilityRole="button"
       accessibilityLabel={
-        likesCount > 0
-          ? `${isLiked ? "Unlike" : "Like"} match, ${likesCount} likes`
+        displayCount > 0
+          ? `${isLiked ? "Unlike" : "Like"} match, ${displayCount} likes`
           : isLiked
             ? "Unlike match"
             : "Like match"
       }
-      accessibilityState={{ disabled: isLiking || !canToggle }}
+      accessibilityState={{ disabled: !interactive, selected: isLiked }}
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
@@ -80,7 +79,7 @@ export function MatchLikeButton({
         paddingVertical: 5,
         borderRadius: 10,
         backgroundColor: isLiked ? "rgba(37,99,235,0.08)" : "rgba(107,114,128,0.06)",
-        opacity: pressed && canToggle ? 0.75 : isLiking || !canToggle ? 0.5 : 1,
+        opacity: pressed && interactive ? 0.75 : !interactive ? 0.45 : 1,
       })}
     >
       <LucideIcon
@@ -94,9 +93,11 @@ export function MatchLikeButton({
           fontSize: 12,
           fontWeight: "600",
           color: isLiked ? accent : muted,
+          minWidth: 12,
+          textAlign: "center",
         }}
       >
-        {likesCount}
+        {displayCount}
       </Text>
     </Pressable>
   );

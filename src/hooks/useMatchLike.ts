@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Alert } from "react-native";
 import type { Match } from "../../types/match";
 import { matchService } from "../services/api/matchService";
@@ -18,45 +18,53 @@ type UseMatchLikeOptions = MatchLikeToggleOptions & {
   allowToggle?: boolean;
 };
 
+function readBaselineSnapshot(match: Match) {
+  return resolveMatchLikeFields(match, useMatchLikeStore.getState().overrides[match.id] ?? null);
+}
+
 /**
  * Centralized like engagement — reads/writes `useMatchLikeStore` only (no duplicate local counts).
  */
 export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
   const { allowToggle = true, isOwnDashboardMatch = false } = options;
   const { user } = useAuth();
+  const inFlightRef = useRef(false);
 
   const snapshot = useMatchLikeStore((s) => s.overrides[match.id]);
   const isPending = useMatchLikeStore((s) => Boolean(s.pendingIds[match.id]));
-  const revision = useMatchLikeStore((s) => s.revision);
 
   const beginPending = useMatchLikeStore((s) => s.beginPending);
   const endPending = useMatchLikeStore((s) => s.endPending);
   const setSnapshot = useMatchLikeStore((s) => s.setSnapshot);
   const applyToggleResult = useMatchLikeStore((s) => s.applyToggleResult);
 
-  const resolved = useMemo(
-    () => resolveMatchLikeFields(match, snapshot),
-    [match.id, match.isLiked, match.likesCount, snapshot, revision]
+  const isLiked = snapshot?.isLiked ?? Boolean(match.isLiked);
+  const likesCount =
+    snapshot?.likesCount ??
+    (typeof match.likesCount === "number" ? match.likesCount : 0);
+
+  const canToggle = useMemo(
+    () =>
+      allowToggle &&
+      canUserToggleMatchLike(match, user?.id, { isOwnDashboardMatch }) &&
+      isValidMatchIdForApi(match.id) &&
+      !isPending &&
+      !inFlightRef.current,
+    [allowToggle, match, user?.id, isOwnDashboardMatch, isPending]
   );
 
-  const canToggle =
-    allowToggle &&
-    canUserToggleMatchLike(match, user?.id, { isOwnDashboardMatch }) &&
-    isValidMatchIdForApi(match.id) &&
-    !isPending;
-
   const handleLike = useCallback(async () => {
-    if (!canToggle) return;
-
-    if (!isValidMatchIdForApi(match.id)) {
-      Alert.alert("Error", "This match cannot be liked right now. Try refreshing the list.");
+    if (
+      !allowToggle ||
+      !canUserToggleMatchLike(match, user?.id, { isOwnDashboardMatch }) ||
+      !isValidMatchIdForApi(match.id) ||
+      inFlightRef.current ||
+      useMatchLikeStore.getState().pendingIds[match.id]
+    ) {
       return;
     }
 
-    const previousSnapshot = snapshot ?? {
-      likesCount: resolved.likesCount,
-      isLiked: resolved.isLiked,
-    };
+    const previousSnapshot = readBaselineSnapshot(match);
     const nextLiked = !previousSnapshot.isLiked;
     const optimisticCount = nextLiked
       ? previousSnapshot.likesCount + 1
@@ -68,6 +76,7 @@ export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
       to: { isLiked: nextLiked, likesCount: optimisticCount },
     });
 
+    inFlightRef.current = true;
     beginPending(match.id);
     setSnapshot(match.id, { isLiked: nextLiked, likesCount: optimisticCount }, "optimistic");
 
@@ -94,14 +103,14 @@ export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
         getUserFriendlyErrorMessage(error, "Failed to update like. Please try again.")
       );
     } finally {
+      inFlightRef.current = false;
       endPending(match.id);
     }
   }, [
-    canToggle,
-    match.id,
-    snapshot,
-    resolved.likesCount,
-    resolved.isLiked,
+    allowToggle,
+    match,
+    user?.id,
+    isOwnDashboardMatch,
     beginPending,
     endPending,
     setSnapshot,
@@ -109,8 +118,8 @@ export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
   ]);
 
   return {
-    isLiked: resolved.isLiked,
-    likesCount: resolved.likesCount,
+    isLiked,
+    likesCount,
     isLiking: isPending,
     canToggle,
     handleLike,

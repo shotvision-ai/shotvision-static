@@ -73,13 +73,21 @@ export function seedMatchVisibilityFromMatch(match: Match, options?: { markExplo
 /**
  * Sync visibility snapshots from authoritative list/detail API rows.
  * Explore rows are normalized with `isPublic: true`; my-matches rows use server `isPublic`.
+ *
+ * Never downgrade a snapshot the user explicitly set to public when the dashboard DTO
+ * omits or lags `isPublic` (common right after create/toggle).
  */
 export function reconcileVisibilityFromApiItems(matches: Match[]): void {
   const state = useMatchVisibilityStore.getState();
   for (const m of matches) {
     const id = m.id.trim();
     if (!id) continue;
-    state.setSnapshot(id, { isPublic: Boolean(m.isPublic) });
+    const existing = getMatchVisibilitySnapshot(id);
+    const apiPublic = Boolean(m.isPublic);
+    if (existing?.isPublic && !apiPublic) {
+      continue;
+    }
+    state.setSnapshot(id, { isPublic: apiPublic });
   }
 }
 

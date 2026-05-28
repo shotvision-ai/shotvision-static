@@ -14,6 +14,13 @@ export type MatchLikeSnapshot = {
 
 export type LikeApiContext = "explore" | "dashboard" | "detail" | "toggle";
 
+export type LikeApiPayload = {
+  likesCount?: number;
+  /** When false, list APIs omitted `likedByMe` (mapper default) — do not treat as authoritative. */
+  isLiked?: boolean;
+  likedByMeProvided?: boolean;
+};
+
 type MatchLikeState = {
   overrides: Record<string, MatchLikeSnapshot>;
   /** In-flight like/unlike — blocks API reconcile from clobbering optimistic state. */
@@ -31,11 +38,7 @@ type MatchLikeState = {
     matchId: string,
     result: { likesCount: number; likedByMe: boolean }
   ) => void;
-  reconcileFromApi: (
-    matchId: string,
-    api: { likesCount?: number; isLiked?: boolean },
-    context: LikeApiContext
-  ) => void;
+  reconcileFromApi: (matchId: string, api: LikeApiPayload, context: LikeApiContext) => void;
   clearAll: () => void;
 };
 
@@ -46,6 +49,12 @@ function bumpRevision(revision: number): number {
 async function persistOverrides(userId: string | null, overrides: Record<string, MatchLikeSnapshot>) {
   if (!userId?.trim()) return;
   await savePersistedMatchLikes(userId, overrides);
+}
+
+function normalizeApiCount(api: LikeApiPayload): number | undefined {
+  return typeof api.likesCount === "number" && !Number.isNaN(api.likesCount)
+    ? Math.max(0, api.likesCount)
+    : undefined;
 }
 
 export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
@@ -74,6 +83,7 @@ export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
     if (!id) return;
     set((state) => ({
       pendingIds: { ...state.pendingIds, [id]: true },
+      revision: bumpRevision(state.revision),
     }));
   },
 
@@ -83,7 +93,7 @@ export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
     set((state) => {
       const next = { ...state.pendingIds };
       delete next[id];
-      return { pendingIds: next };
+      return { pendingIds: next, revision: bumpRevision(state.revision) };
     });
   },
 
@@ -99,6 +109,13 @@ export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
       likesCount: Math.max(0, snapshot.likesCount),
       isLiked: snapshot.isLiked,
     };
+    const existing = get().overrides[id];
+    if (
+      existing?.likesCount === normalized.likesCount &&
+      existing?.isLiked === normalized.isLiked
+    ) {
+      return;
+    }
     set((state) => ({
       overrides: { ...state.overrides, [id]: normalized },
       revision: bumpRevision(state.revision),
@@ -124,20 +141,30 @@ export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
     }
 
     const existing = get().overrides[id];
-    const apiCount = typeof api.likesCount === "number" ? Math.max(0, api.likesCount) : undefined;
+    const apiCount = normalizeApiCount(api);
+    const apiLikedProvided = api.likedByMeProvided === true;
+    const apiLiked = apiLikedProvided ? Boolean(api.isLiked) : undefined;
+
+    // Dashboard rows often omit like fields — avoid seeding {0, false} overrides.
+    if (context === "dashboard" && !existing && apiCount === undefined && !apiLikedProvided) {
+      return;
+    }
 
     let likesCount: number;
     if (context === "explore" || context === "detail" || context === "toggle") {
       likesCount = apiCount ?? existing?.likesCount ?? 0;
     } else {
-      likesCount = existing?.likesCount ?? apiCount ?? 0;
+      likesCount = apiCount ?? existing?.likesCount ?? 0;
     }
 
     let isLiked: boolean;
     if (context === "detail" || context === "toggle") {
-      isLiked = Boolean(api.isLiked);
+      isLiked = apiLiked ?? existing?.isLiked ?? false;
+    } else if (context === "explore") {
+      // Explore exposes likesCount but not likedByMe — never clear a known local like.
+      isLiked = existing?.isLiked ?? apiLiked ?? false;
     } else {
-      isLiked = existing?.isLiked ?? false;
+      isLiked = existing?.isLiked ?? apiLiked ?? false;
     }
 
     const next: MatchLikeSnapshot = { likesCount, isLiked };

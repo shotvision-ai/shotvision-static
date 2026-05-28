@@ -93,10 +93,19 @@ export default function Explore() {
     }
 
     if (error && !isAuthenticating) {
+      const isWakeUp =
+        error.toLowerCase().includes("starting") ||
+        error.toLowerCase().includes("taking longer") ||
+        error.toLowerCase().includes("timed out") ||
+        error.toLowerCase().includes("connection");
       return (
         <ListErrorState
-          title="Couldn't load explore matches"
-          message={error}
+          title="Couldn't load explore"
+          message={
+            isWakeUp
+              ? "The server is waking up — this can take up to 30 seconds on first load. Tap Try again."
+              : error
+          }
           onRetry={() => {
             void refresh();
           }}

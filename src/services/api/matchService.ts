@@ -7,6 +7,11 @@ import { setsForMatchWrite } from "../../utils/matchSetsPayload";
 import { AppError } from "./apiErrors";
 import { normalizePaginatedResponse, type PaginatedResponse } from "./pagination";
 import { devLog } from "../../utils/devLog";
+import {
+  clampMatchApiPageSize,
+  logExploreApiResponse,
+} from "../../utils/exploreApiDebug";
+import { EXPLORE_FEED_TIMEOUT_MS } from "../../config/apiTimeouts";
 import type {
   FinishMatchResponse,
   LikeMatchResponse,
@@ -52,9 +57,10 @@ export const matchService = {
     limit: number = 10,
     status: MatchStatusFilter = "all"
   ): Promise<PaginatedResponse<Match>> {
+    const safeLimit = clampMatchApiPageSize(limit);
     const params: Record<string, string> = {
       page: String(Math.max(0, page - 1)),
-      size: String(limit),
+      size: String(safeLimit),
     };
 
     const apiStatus = toApiStatusFilter(status);
@@ -63,7 +69,7 @@ export const matchService = {
     }
 
     const raw = await apiClient.get<unknown>("/api/matches/my", { params });
-    const paged = normalizePaginatedResponse<unknown>(raw, limit);
+    const paged = normalizePaginatedResponse<unknown>(raw, safeLimit);
     return { ...paged, items: normalizeMatchList(paged.items as unknown[]) };
   },
 
@@ -80,7 +86,7 @@ export const matchService = {
     status: MatchStatusFilter = "all"
   ): Promise<PaginatedResponse<Match>> {
     const startPage = Math.max(1, page);
-    const targetSize = Math.max(1, limit);
+    const targetSize = clampMatchApiPageSize(limit);
     const maxScanPages = status === "all" ? 1 : 6;
 
     let currentPage = startPage;
@@ -96,7 +102,7 @@ export const matchService = {
         page: String(currentPage - 1),
         size: String(targetSize),
       };
-      const raw = await apiClient.get<unknown>("/api/matches/explore", { params });
+      const raw = await apiClient.get<unknown>("/api/matches/explore", { params, timeoutMs: EXPLORE_FEED_TIMEOUT_MS });
       const paged = normalizePaginatedResponse<unknown>(raw, targetSize);
       const mapped = normalizeExploreMatchList(paged.items as unknown[]);
       const filtered = filterMatchesByStatus(mapped, status);
@@ -109,6 +115,14 @@ export const matchService = {
       lastPage = paged.page;
       currentPage = paged.page + 1;
       scanned += 1;
+
+      logExploreApiResponse(
+        { requestPage: currentPage, requestSize: targetSize, raw },
+        paged,
+        mapped,
+        filtered,
+        status
+      );
 
       if (__DEV__) {
         devLog.info(
@@ -128,8 +142,20 @@ export const matchService = {
   },
 
   async getMatchDetails(id: string): Promise<Match> {
+    const { match } = await this.getMatchDetailsWithRaw(id);
+    return match;
+  },
+
+  /** Includes raw API payload so like reconciliation can detect `likedByMe` presence. */
+  async getMatchDetailsWithRaw(
+    id: string
+  ): Promise<{ match: Match; raw: Record<string, unknown> }> {
     const raw = await apiClient.get<unknown>(`/api/matches/${id}`);
-    return normalizeMatch(raw);
+    const record =
+      raw != null && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    return { match: normalizeMatch(raw), raw: record };
   },
 
   async createMatch(data: CreateMatchInput): Promise<Match> {

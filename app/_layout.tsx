@@ -11,6 +11,8 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as React from "react";
 import { Platform, TouchableOpacity, View, InteractionManager } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenLoadingState } from "~/components/ui/AsyncListState";
 import { useColorScheme } from "~/lib/useColorScheme";
 import { ThemeProvider, useTheme } from "~/theming/ThemeProvider";
 import darkTheme from "~/theming/themes/dark";
@@ -54,15 +56,20 @@ function RootContent() {
   });
   const isLoadingFonts = !fontsLoaded && !fontError;
 
+  React.useEffect(() => {
+    if (fontError && typeof __DEV__ !== "undefined" && __DEV__) {
+      console.warn("[fonts] DM Sans failed to load; using system fonts.", fontError);
+    }
+  }, [fontError]);
+
   // Global auth redirects — single navigation path after sign-in (no duplicate replace from login.tsx).
   React.useEffect(() => {
-    if (!isHydrated || isAuthLoading || !isColorSchemeLoaded || isLoadingFonts) return;
+    if (!isHydrated || isAuthLoading || !isColorSchemeLoaded) return;
 
     const inAuthGroup =
       segments[0] === "login" ||
       segments[0] === "otp" ||
       segments[0] === "splash" ||
-      // @ts-expect-error expo-router types don't include dynamic nested groups
       segments[0] === "auth";
 
     if (isAuthenticated && inAuthGroup) {
@@ -87,7 +94,6 @@ function RootContent() {
     isHydrated,
     segments,
     isColorSchemeLoaded,
-    isLoadingFonts,
     router,
   ]);
 
@@ -132,13 +138,32 @@ function RootContent() {
   }, []);
 
   React.useEffect(() => {
-    if (!isLoadingFonts) {
-      SplashScreen.hideAsync();
-    }
-  }, [isLoadingFonts]);
+    if (!isHydrated) return;
 
-  if (!isColorSchemeLoaded || isLoadingFonts || !isHydrated) {
-    return null;
+    if (!isLoadingFonts) {
+      void SplashScreen.hideAsync();
+      return;
+    }
+
+    // Avoid an indefinite native splash if font loading stalls on device/emulator.
+    const timeout = setTimeout(() => {
+      void SplashScreen.hideAsync();
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [isHydrated, isLoadingFonts]);
+
+  if (!isColorSchemeLoaded || !isHydrated) {
+    return (
+      <SafeAreaView
+        className="flex-1 bg-background"
+        style={{ backgroundColor: theme.colors.background }}
+      >
+        <ScreenLoadingState
+          message={!isHydrated ? "Starting Shot Vision…" : "Loading Shot Vision…"}
+        />
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -280,7 +305,7 @@ function RootContent() {
             }}
           />
           <Stack.Screen
-            name="auth/email-link"
+            name="auth"
             options={{
               headerShown: false,
             }}

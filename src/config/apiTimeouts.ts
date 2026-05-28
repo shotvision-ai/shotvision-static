@@ -6,6 +6,9 @@
 /** Default timeout for JSON API calls (ms). */
 export const DEFAULT_API_REQUEST_TIMEOUT_MS = 45_000;
 
+/** Explore feed — Render free-tier cold starts can delay the first response past 45s. */
+export const EXPLORE_FEED_TIMEOUT_MS = 90_000;
+
 /** Login POST — Render free-tier cold starts can exceed 45s. */
 export const AUTH_LOGIN_TIMEOUT_MS = 90_000;
 

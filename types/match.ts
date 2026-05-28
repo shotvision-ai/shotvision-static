@@ -25,9 +25,9 @@ export interface Match {
   playerBGender?: MatchParticipantGender;
   status: MatchStatus;
   matchDate: string; // ISO date
-  /** API `createdAt` — fallback for 48h edit window when `finishedAt` is omitted on list payloads. */
+  /** API `createdAt` — display/ordering only; not used for the 48h finished-match edit window. */
   createdAt?: string;
-  /** Set when status is finished (API `finishedAt`); used for 48h edit window. */
+  /** Completion time (API `finishedAt`); drives the 48h edit window. May be hydrated from ownership cache on list rows. */
   finishedAt?: string | null;
   location?: string;
   isPublic: boolean;

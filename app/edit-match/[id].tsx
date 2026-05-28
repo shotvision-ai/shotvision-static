@@ -32,6 +32,7 @@ import {
   isMatchEditableByCreator,
   matchEditBlockedMessage,
   resolveMatchEditOwnerOptions,
+  resolveMatchLifecycleFields,
 } from "../../src/utils/matchEditEligibility";
 import { buildFinishedMatchPatchInput } from "../../src/utils/matchEditPatch";
 import {
@@ -108,7 +109,8 @@ export default function EditMatch() {
         setIsLoading(true);
         const raw = await matchService.getMatchDetails(id as string);
         if (cancelled) return;
-        const data = enrichMatchForViewer(raw, currentUser.id);
+        const enriched = enrichMatchForViewer(raw, currentUser.id);
+        const data = resolveMatchLifecycleFields(enriched);
         syncMatchOwnershipFromMatches([data]);
         if (data.creatorId) {
           recordMatchOwnership(data.id, data.creatorId, data.finishedAt);
@@ -235,10 +237,11 @@ export default function EditMatch() {
     match?.status === "live" || match?.status === "scheduled";
   // Show the score section for live/scheduled matches and for completed matches
   // that are still within the 48-hour edit window, so owners can correct scores.
+  const lifecycleMatch = match ? resolveMatchLifecycleFields(match) : null;
   const canShowScoreSection =
-    !match ||
-    match.status !== "completed" ||
-    isFinishedMatchWithinEditWindow(match);
+    !lifecycleMatch ||
+    lifecycleMatch.status !== "completed" ||
+    isFinishedMatchWithinEditWindow(lifecycleMatch);
 
   const buildMatchInput = (writeStatus: "live" | "scheduled"): UpdateMatchInput => ({
     playerA,
