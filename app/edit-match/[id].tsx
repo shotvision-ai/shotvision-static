@@ -1,26 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  TextInput,
   type ScrollView as ScrollViewType,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useRouter, useLocalSearchParams } from "expo-router";
 import { Text } from "~/components/ui/text";
-import { useTheme } from "~/theming/ThemeProvider";
-import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import { Textarea } from "~/components/ui/textarea";
-import { Button } from "~/components/ui/button";
 import { Switch } from "~/components/ui/switch";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { Match, MatchSet } from "~/types/match";
 import { CalendarPicker } from "~/components/ui/CalendarPicker";
+import { TimePicker } from "~/components/ui/TimePicker";
 import { matchService, UpdateMatchInput } from "../../src/services/api/matchService";
 import { formatMatchSaveError } from "../../src/services/api/matchFormErrors";
 import { AppError } from "../../src/services/api/apiErrors";
@@ -28,7 +24,7 @@ import { getUserFriendlyErrorMessage } from "../../src/services/api/userFriendly
 import { devLog } from "../../src/utils/devLog";
 import { useAuth } from "../../src/context/AuthContext";
 import {
-  isFinishedMatchWithinEditWindow,
+  canEditMatchNotes,
   isMatchEditableByCreator,
   matchEditBlockedMessage,
   resolveMatchEditOwnerOptions,
@@ -47,26 +43,47 @@ import {
   canCompleteMatchWithScores,
   completeMatchValidationMessage,
 } from "../../src/utils/matchCompletion";
-import { MATCH_COMPLETE_FOCUS } from "../../src/utils/matchLifecycle";
+import {
+  MATCH_COMPLETE_FOCUS,
+  MATCH_NAV_SOURCE_DETAIL,
+} from "../../src/utils/matchLifecycle";
 import {
   hasEnterableMatchScores,
   scheduledMatchSaveLabel,
   scheduledSaveBlockedMessage,
 } from "../../src/utils/matchScheduledLifecycle";
+import { scheduleMatchCalendarSync } from "../../src/services/calendar/matchCalendarSync";
+import { notifyParticipantsOfMatchUpdate } from "../../src/services/notifications/matchUpdateNotifier";
 import {
   DEFAULT_LIVE_MATCH_SETS,
   setsForMatchWrite,
 } from "../../src/utils/matchSetsPayload";
-import { useAppTheming } from "../../src/hooks/useAppTheming";
+import { combineMatchDateAndTime } from "../../src/utils/matchDateTime";
 import { ScreenErrorState, ScreenLoadingState } from "~/components/ui/AsyncListState";
+import { recordMatchSets } from "../../src/stores/matchSetsStore";
+import { CreateMatchHeader } from "~/components/createMatch/CreateMatchHeader";
+import { CreateMatchPlayersCard } from "~/components/createMatch/CreateMatchPlayersCard";
+import { CreateMatchScoreEditor } from "~/components/createMatch/CreateMatchScoreEditor";
+import { createMatch, inputStyle } from "~/components/createMatch/createMatchStyles";
+import {
+  MatchFormSectionTitle,
+  MatchFormFieldLabel,
+  MatchFormPickerField,
+  MatchFormFooter,
+  formatMatchFormDate,
+  timeFromDate,
+  matchFormFooterPadding,
+} from "~/components/createMatch/matchFormFields";
 
 export default function EditMatch() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
-  const { colors, brand } = useAppTheming();
   const { user: currentUser } = useAuth();
-  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
+  const { id, focus, source } = useLocalSearchParams<{
+    id: string;
+    focus?: string;
+    source?: string;
+  }>();
   const isNotesFocus = focus === MATCH_NOTES_FOCUS;
   const isCompleteFocus = focus === MATCH_COMPLETE_FOCUS;
   const scrollRef = useRef<ScrollViewType>(null);
@@ -79,29 +96,29 @@ export default function EditMatch() {
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Form state
   const [playerA, setPlayerA] = useState("");
   const [playerB, setPlayerB] = useState("");
   const [matchDate, setMatchDate] = useState(new Date());
+  const [matchTime, setMatchTime] = useState("12:00");
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [location, setLocation] = useState("");
+  const [locationFocused, setLocationFocused] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
   const [sets, setSets] = useState<MatchSet[]>(DEFAULT_LIVE_MATCH_SETS);
   const [notes, setNotes] = useState("");
+  const [notesFocused, setNotesFocused] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
 
   const retryFetch = useCallback(() => {
     setReloadKey((k) => k + 1);
   }, []);
 
-  // Fetch match details — cancelled flag avoids setState after unmount / id change.
   useEffect(() => {
     let cancelled = false;
 
     const fetchMatch = async () => {
-      if (!currentUser?.id) {
-        return;
-      }
+      if (!currentUser?.id) return;
 
       try {
         setFetchError(null);
@@ -116,9 +133,12 @@ export default function EditMatch() {
           recordMatchOwnership(data.id, data.creatorId, data.finishedAt);
         }
         setMatch(data);
+        recordMatchSets(data.id, data.sets);
         setPlayerA(data.playerA);
         setPlayerB(data.playerB);
-        setMatchDate(new Date(data.matchDate));
+        const parsedDate = new Date(data.matchDate);
+        setMatchDate(parsedDate);
+        setMatchTime(timeFromDate(parsedDate));
         setLocation(data.location || "");
         setIsScheduled(data.status === "scheduled");
         setSets(
@@ -133,7 +153,8 @@ export default function EditMatch() {
 
         const ownerOptions = resolveMatchEditOwnerOptions(data, currentUser.id);
         const editable = isMatchEditableByCreator(data, currentUser.id, ownerOptions);
-        if (!editable) {
+        const notesEditable = canEditMatchNotes(data, currentUser.id, ownerOptions);
+        if (!editable && !(isNotesFocus && notesEditable)) {
           setBlockedMessage(matchEditBlockedMessage(data, currentUser.id, ownerOptions));
         }
       } catch (err: unknown) {
@@ -157,7 +178,7 @@ export default function EditMatch() {
     return () => {
       cancelled = true;
     };
-  }, [id, currentUser?.id, reloadKey]);
+  }, [id, currentUser?.id, reloadKey, isNotesFocus]);
 
   useEffect(() => {
     if (isLoading || !match) return;
@@ -169,26 +190,6 @@ export default function EditMatch() {
     return () => clearTimeout(timer);
   }, [isNotesFocus, isCompleteFocus, isLoading, match?.id]);
 
-  const handleDatePickerOpen = () => {
-    setShowDatePicker(true);
-  };
-
-  const handleDateCancel = () => {
-    setShowDatePicker(false);
-  };
-
-  const handleDateConfirm = (date: Date) => {
-    setMatchDate(date);
-    setShowDatePicker(false);
-  };
-
-  const formatDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
   const handleScheduledToggle = (checked: boolean) => {
     setIsScheduled(checked);
     if (checked) {
@@ -198,78 +199,60 @@ export default function EditMatch() {
     }
   };
 
-  const getMaxDate = () => {
-    if (isScheduled) {
-      return undefined;
-    }
-    return new Date();
-  };
+  const getMaxDate = () => (isScheduled ? undefined : new Date());
+  const getMinDate = () => (isScheduled ? new Date() : undefined);
 
-  const getMinDate = () => {
-    if (isScheduled) {
-      return new Date();
-    }
-    return undefined;
-  };
-
-  const addSet = () => {
-    if (sets.length < 5) {
-      setSets([...sets, { playerAScore: 0, playerBScore: 0 }]);
-    }
-  };
-
-  const updateSet = (index: number, field: "playerAScore" | "playerBScore", value: string) => {
-    const newSets = [...sets];
-    newSets[index][field] = parseInt(value) || 0;
-    setSets(newSets);
-  };
-
-  const removeSet = (index: number) => {
-    if (sets.length > 1) {
-      setSets(sets.filter((_, i) => i !== index));
-    }
-  };
+  const notesOnlyUi = isNotesFocus && match?.status === "completed";
 
   const canComplete = canCompleteMatchWithScores(playerA, playerB, sets);
   const hasScores = hasEnterableMatchScores(sets);
   const isScheduledMatch = match?.status === "scheduled";
   const canShowCompleteActions =
     match?.status === "live" || match?.status === "scheduled";
-  // Show the score section for live/scheduled matches and for completed matches
-  // that are still within the 48-hour edit window, so owners can correct scores.
   const lifecycleMatch = match ? resolveMatchLifecycleFields(match) : null;
+  const hideScoreForScheduledToggle = isScheduled && match?.status === "live";
   const canShowScoreSection =
-    !lifecycleMatch ||
-    lifecycleMatch.status !== "completed" ||
-    isFinishedMatchWithinEditWindow(lifecycleMatch);
+    !notesOnlyUi &&
+    !hideScoreForScheduledToggle &&
+    (!lifecycleMatch || lifecycleMatch.status !== "completed");
+  const showScheduledToggle = match?.status === "live";
+  const matchDateIso = () => combineMatchDateAndTime(matchDate, matchTime).toISOString();
 
   const buildMatchInput = (writeStatus: "live" | "scheduled"): UpdateMatchInput => ({
     playerA,
     playerB,
-    matchDate: matchDate.toISOString(),
+    matchDate: matchDateIso(),
     location,
     isPublic,
     sets: setsForMatchWrite(sets, writeStatus),
     notes,
   });
 
-  /** Finished matches: PATCH fields only — never send `status: LIVE` (backend rejects). */
   const handleSaveNotesOnly = async () => {
     const ownerOptions = match
       ? resolveMatchEditOwnerOptions(match, currentUser?.id)
       : undefined;
-    if (match && !isMatchEditableByCreator(match, currentUser?.id, ownerOptions)) {
+    if (match && !canEditMatchNotes(match, currentUser?.id, ownerOptions)) {
       Alert.alert("Cannot save", matchEditBlockedMessage(match, currentUser?.id, ownerOptions));
       return;
     }
 
     setIsSubmitting(true);
     try {
+      let updatedMatch: Match | null = null;
       if (match?.status === "completed") {
-        await matchService.updateMatch(id as string, { notes }, { omitStatus: true });
+        updatedMatch = await matchService.updateMatch(id as string, { notes }, { omitStatus: true });
       } else {
         const status = match?.status === "scheduled" ? "scheduled" : "live";
-        await matchService.updateMatch(id as string, { notes, status });
+        updatedMatch = await matchService.updateMatch(id as string, { notes, status });
+      }
+      if (updatedMatch) {
+        await notifyParticipantsOfMatchUpdate({
+          previousMatch: match,
+          nextMatch: updatedMatch,
+          actorUserId: currentUser?.id,
+          reason: "match_updated",
+        });
       }
       router.replace(`/match/${id}`);
     } catch (error: unknown) {
@@ -304,16 +287,21 @@ export default function EditMatch() {
       const patch = buildFinishedMatchPatchInput(match!, {
         playerA,
         playerB,
-        matchDate,
+        matchDate: combineMatchDateAndTime(matchDate, matchTime),
         location,
         notes,
         sets: setsForMatchWrite(sets, "completed"),
         isPublic,
       });
-      const saved = await matchService.updateMatch(id as string, patch, {
-        omitStatus: true,
-      });
+      const saved = await matchService.updateMatch(id as string, patch, { omitStatus: true });
       seedMatchVisibilityFromMatch(saved, { markExploreStale: true });
+      scheduleMatchCalendarSync(saved, currentUser?.id);
+      await notifyParticipantsOfMatchUpdate({
+        previousMatch: match,
+        nextMatch: saved,
+        actorUserId: currentUser?.id,
+        reason: "match_updated",
+      });
       router.replace("/(tabs)/dashboard");
     } catch (error: unknown) {
       if (__DEV__) {
@@ -356,6 +344,13 @@ export default function EditMatch() {
       const saved = await matchService.updateMatch(id as string, input);
       seedMatchVisibilityFromMatch(saved, { markExploreStale: true });
       useMatchVisibilityStore.getState().markAllListsStale();
+      scheduleMatchCalendarSync(saved, currentUser?.id);
+      await notifyParticipantsOfMatchUpdate({
+        previousMatch: match,
+        nextMatch: saved,
+        actorUserId: currentUser?.id,
+        reason: "match_updated",
+      });
       router.replace("/(tabs)/dashboard");
     } catch (error: unknown) {
       if (__DEV__) {
@@ -376,7 +371,18 @@ export default function EditMatch() {
       const completed = await matchService.completeMatch(id as string, buildMatchInput("live"));
       seedMatchVisibilityFromMatch(completed, { markExploreStale: true });
       useMatchVisibilityStore.getState().markAllListsStale();
-      router.replace(`/match/${id}`);
+      scheduleMatchCalendarSync(completed, currentUser?.id);
+      await notifyParticipantsOfMatchUpdate({
+        previousMatch: match,
+        nextMatch: completed,
+        actorUserId: currentUser?.id,
+        reason: "match_completed",
+      });
+      if (source === MATCH_NAV_SOURCE_DETAIL && router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace(`/match/${id}`);
+      }
     } catch (error: unknown) {
       if (__DEV__) {
         const summary =
@@ -426,9 +432,6 @@ export default function EditMatch() {
   };
 
   const handleSave = () => {
-    // Notes-only path: only valid when the match is completed (notesOnlyUi).
-    // For live/scheduled the full form is shown; go through the full save so score
-    // and other field changes entered on that form are not silently discarded.
     if (isNotesFocus && match?.status === "completed") {
       void handleSaveNotesOnly();
       return;
@@ -449,533 +452,359 @@ export default function EditMatch() {
     void handleSubmit(isScheduled ? "scheduled" : "live");
   };
 
-  const notesOnlyUi = isNotesFocus && match?.status === "completed";
+  const headerTitle = isNotesFocus ? "Match Notes" : "Edit Match";
 
-  const screenHeader = (
-    <View
-      style={{
-        paddingTop: insets.top,
-        paddingLeft: insets.left,
-        paddingRight: insets.right,
-        backgroundColor: theme.colors.background,
-      }}
-    >
-      <View
-        style={{
-          height: 56,
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: 4,
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          style={{
-            padding: 8,
-            marginLeft: 4,
-            minWidth: 44,
-            minHeight: 44,
-            justifyContent: "center",
-          }}
-        >
-          <LucideIcon name="ChevronLeft" size={26} color={theme.colors.foreground} />
-        </TouchableOpacity>
+  const showCompleteGhost =
+    !notesOnlyUi &&
+    canShowCompleteActions &&
+    !isScheduledMatch &&
+    match?.status === "live";
 
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text
-            style={{
-              fontSize: 18,
-              fontWeight: "600",
-              fontFamily: theme.typography.h2?.fontFamily,
-              color: theme.colors.foreground,
-            }}
-            numberOfLines={1}
-          >
-            {isNotesFocus ? "Match Notes" : "Edit Match"}
-          </Text>
-        </View>
+  const footerPrimaryLabel = notesOnlyUi
+    ? "Save Notes"
+    : isScheduledMatch
+      ? "Start Live"
+      : "Save Changes";
 
-        <View style={{ width: 44 }} />
-      </View>
+  const footerOnPrimary = notesOnlyUi
+    ? handleSave
+    : isScheduledMatch
+      ? handleStartLive
+      : handleSave;
+
+  const footerSecondaryLabel =
+    showCompleteGhost && canComplete ? "Save & Complete" : isScheduledMatch
+      ? scheduledMatchSaveLabel(hasScores)
+      : undefined;
+
+  const footerOnSecondary = isScheduledMatch
+    ? hasScores
+      ? undefined
+      : handleSave
+    : showCompleteGhost
+      ? handleComplete
+      : undefined;
+
+  const footerSecondaryDisabled = isScheduledMatch ? isSubmitting || hasScores : !canComplete;
+
+  const footerPad = matchFormFooterPadding(
+    insets.bottom,
+    Boolean(footerSecondaryLabel && footerOnSecondary)
+  );
+
+  const shell = (children: ReactNode) => (
+  <>
+    <Stack.Screen options={{ headerShown: false }} />
+    <View style={{ flex: 1, backgroundColor: createMatch.pageBg }}>
+      <CreateMatchHeader
+        topInset={insets.top}
+        title={headerTitle}
+        onBack={() => router.back()}
+      />
+      {children}
     </View>
+  </>
   );
 
   if (isLoading) {
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-          {screenHeader}
-          <ScreenLoadingState message="Loading match details…" />
-        </View>
-      </>
-    );
+    return shell(<ScreenLoadingState message="Loading match details…" />);
   }
 
   if (!match) {
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-          {screenHeader}
-          <ScreenErrorState
-            title={fetchError ? "Couldn't load match" : "Match not found"}
-            message={fetchError ?? "This match may have been removed or is no longer available."}
-            onRetry={fetchError ? retryFetch : undefined}
-            onBack={() => router.back()}
-          />
-        </View>
-      </>
+    return shell(
+      <ScreenErrorState
+        title={fetchError ? "Couldn't load match" : "Match not found"}
+        message={fetchError ?? "This match may have been removed or is no longer available."}
+        onRetry={fetchError ? retryFetch : undefined}
+        onBack={() => router.back()}
+      />
     );
   }
 
   if (blockedMessage) {
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-          {screenHeader}
-          <ScreenErrorState
-            title="Can't edit this match"
-            message={blockedMessage}
-            onBack={() => router.back()}
-          />
-        </View>
-      </>
+    return shell(
+      <ScreenErrorState
+        title="Can't edit this match"
+        message={blockedMessage}
+        onBack={() => router.back()}
+      />
     );
   }
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        {screenHeader}
+      <View style={{ flex: 1, backgroundColor: createMatch.pageBg }}>
+        <CreateMatchHeader
+          topInset={insets.top}
+          title={headerTitle}
+          onBack={() => router.back()}
+        />
 
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 56 : 0}
         >
-          <View style={{ flex: 1 }}>
-            <ScrollView
-              ref={scrollRef}
-              style={{ flex: 1 }}
-              contentContainerStyle={{
-                paddingHorizontal: 20,
-                paddingTop: 8,
-                paddingBottom: 16,
-              }}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              automaticallyAdjustKeyboardInsets
-            >
-        {notesOnlyUi ? (
-          <View className="mb-6">
-            <Text className="text-body text-muted-foreground mb-6 leading-6">
-              Add or update notes for this match. Changes are saved to your match and visible in
-              match details.
-            </Text>
-            <Text className="text-h3 font-semibold text-foreground mb-4">Notes</Text>
-            <Textarea
-              placeholder="Add match notes"
-              value={notes}
-              onChangeText={setNotes}
-              numberOfLines={6}
-              className="min-h-[160px]"
-              autoFocus
-            />
-          </View>
-        ) : (
-          <>
-        {/* Section 1: Players */}
-        <View className="mb-8">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Players</Text>
-          <View
-            style={{
-              backgroundColor: "rgba(37,99,235,0.04)",
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: "rgba(37,99,235,0.15)",
-              padding: 16,
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingTop: 4,
+              paddingBottom: footerPad,
             }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
           >
-            {/* Player A */}
-            <View className="mb-3">
-              <View className="flex-row items-center gap-2 mb-2">
-                <View
+            {notesOnlyUi ? (
+              <View style={{ marginBottom: 24 }}>
+                <Text
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: playerA ? brand.blue : colors.emptyAvatar,
-                    alignItems: "center",
-                    justifyContent: "center",
+                    fontFamily: createMatch.fonts.regular,
+                    fontSize: 14,
+                    color: createMatch.muted,
+                    marginBottom: 20,
+                    lineHeight: 20,
                   }}
                 >
-                  {playerA ? (
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#ffffff" }}>
-                      {playerA.charAt(0).toUpperCase()}
-                    </Text>
-                  ) : (
-                    <LucideIcon name="User" size={16} color={colors.muted} />
-                  )}
-                </View>
-                <Text className="text-body font-semibold text-foreground">Player A</Text>
-              </View>
-              <Input
-                placeholder="Enter player name"
-                value={playerA}
-                onChangeText={setPlayerA}
-                className="rounded-xl"
-                style={{ borderColor: playerA ? "#2563eb" : undefined, borderWidth: 1.5 }}
-              />
-            </View>
-
-            {/* VS divider */}
-            <View className="flex-row items-center gap-3 my-2">
-              <View style={{ flex: 1, height: 1, backgroundColor: "rgba(37,99,235,0.15)" }} />
-              <View
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: "#2563eb",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: "800", color: "#ffffff" }}>VS</Text>
-              </View>
-              <View style={{ flex: 1, height: 1, backgroundColor: "rgba(37,99,235,0.15)" }} />
-            </View>
-
-            {/* Player B */}
-            <View className="mt-3">
-              <View className="flex-row items-center gap-2 mb-2">
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: playerB ? brand.purple : colors.emptyAvatar,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {playerB ? (
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#ffffff" }}>
-                      {playerB.charAt(0).toUpperCase()}
-                    </Text>
-                  ) : (
-                    <LucideIcon name="User" size={16} color={colors.muted} />
-                  )}
-                </View>
-                <Text className="text-body font-semibold text-foreground">Player B</Text>
-              </View>
-              <Input
-                placeholder="Enter player name"
-                value={playerB}
-                onChangeText={setPlayerB}
-                className="rounded-xl"
-                style={{ borderColor: playerB ? "#7c3aed" : undefined, borderWidth: 1.5 }}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* Section 2: Match Details */}
-        <View className="mb-10">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Match Details</Text>
-          <View className="gap-4">
-            <View>
-              <Label nativeID="matchDate" className="mb-2">
-                Match Date
-              </Label>
-              <TouchableOpacity
-                onPress={handleDatePickerOpen}
-                className="flex-row items-center justify-between bg-background border border-input rounded-lg px-4 py-3"
-              >
-                <Text className="text-body text-foreground">{formatDate(matchDate)}</Text>
-                <LucideIcon name="Calendar" size={20} color={colors.muted} />
-              </TouchableOpacity>
-            </View>
-            <View>
-              <Label nativeID="location" className="mb-2">
-                Location (Optional)
-              </Label>
-              <Input
-                placeholder="e.g., Golden Gate Park Courts"
-                value={location}
-                onChangeText={setLocation}
-                aria-labelledby="location"
-              />
-            </View>
-            {match.status === "live" ? (
-              <View className="flex-row items-center justify-between py-2">
-                <View>
-                  <Text className="text-body font-medium text-foreground">Scheduled</Text>
-                  <Text className="text-caption text-muted-foreground mt-0.5">
-                    Mark as scheduled for later
-                  </Text>
-                </View>
-                <Switch checked={isScheduled} onCheckedChange={handleScheduledToggle} />
-              </View>
-            ) : null}
-            {match.status === "scheduled" ? (
-              <View
-                className="rounded-xl px-4 py-3"
-                style={{ backgroundColor: "rgba(37,99,235,0.08)" }}
-              >
-                <Text className="text-body text-foreground leading-6">
-                  {hasScores
-                    ? "Scores can't stay on a Scheduled match. Tap Start Live to save scores, or clear scores to keep it scheduled."
-                    : "When play starts, tap Start Live. Enter scores below, then Save & Complete when the match is done."}
+                  Add or update notes for this match. Changes are saved to your match and visible in
+                  match details.
                 </Text>
+                <MatchFormSectionTitle>Notes</MatchFormSectionTitle>
+                <TextInput
+                  value={notes}
+                  onChangeText={setNotes}
+                  placeholder="Add match notes"
+                  placeholderTextColor={createMatch.placeholder}
+                  multiline
+                  autoFocus
+                  textAlignVertical="top"
+                  onFocus={() => setNotesFocused(true)}
+                  onBlur={() => setNotesFocused(false)}
+                  style={{
+                    ...inputStyle(notesFocused),
+                    minHeight: 160,
+                    paddingTop: 14,
+                  }}
+                  accessibilityLabel="Match notes"
+                />
               </View>
-            ) : null}
-          </View>
-        </View>
+            ) : (
+              <>
+                <MatchFormSectionTitle>Players</MatchFormSectionTitle>
+                <View style={{ marginBottom: 24 }}>
+                  <CreateMatchPlayersCard
+                    playerA={playerA}
+                    playerB={playerB}
+                    onChangeA={setPlayerA}
+                    onChangeB={setPlayerB}
+                    initialFocusSide="A"
+                  />
+                </View>
 
-        {/* Section 3: Score — live/scheduled always; completed only within 48h edit window */}
-        {canShowScoreSection ? (
-          <View
-            className="mb-10"
-            onLayout={(e) => {
-              scoresSectionY.current = e.nativeEvent.layout.y;
-            }}
-          >
-            <Text className="text-h3 font-semibold text-foreground mb-4">Score</Text>
-            <View className="gap-3">
-              {sets.map((set, index) => (
-                <View key={index}>
-                  <View
-                    className="bg-card rounded-xl p-4 border border-border"
-                    style={{
-                      shadowColor: "#000",
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.06,
-                      shadowRadius: 4,
-                      elevation: 2,
-                    }}
-                  >
-                    <View className="flex-row items-center justify-between mb-3">
-                      <Text className="text-body font-medium text-foreground">Set {index + 1}</Text>
-                      {sets.length > 1 && (
-                        <TouchableOpacity onPress={() => removeSet(index)} className="p-1">
-                          <LucideIcon name="X" size={18} className="text-muted-foreground" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    <View className="flex-row items-center gap-3">
-                      <View className="flex-1">
-                        <Input
-                          placeholder="0"
-                          value={set.playerAScore.toString()}
-                          onChangeText={(value) => updateSet(index, "playerAScore", value)}
-                          keyboardType="numeric"
-                        />
-                      </View>
-                      <Text className="text-body text-muted-foreground">-</Text>
-                      <View className="flex-1">
-                        <Input
-                          placeholder="0"
-                          value={set.playerBScore.toString()}
-                          onChangeText={(value) => updateSet(index, "playerBScore", value)}
-                          keyboardType="numeric"
-                        />
-                      </View>
-                    </View>
+                <MatchFormSectionTitle>Match Details</MatchFormSectionTitle>
+                <View style={{ gap: 14, marginBottom: 24 }}>
+                  <MatchFormPickerField
+                    label="Match Date"
+                    value={formatMatchFormDate(matchDate)}
+                    icon="Calendar"
+                    onPress={() => setShowDatePicker(true)}
+                  />
+                  <MatchFormPickerField
+                    label="Match Time"
+                    value={matchTime}
+                    icon="Clock"
+                    onPress={() => setShowTimePicker(true)}
+                  />
+                  <View>
+                    <MatchFormFieldLabel>Location (Optional)</MatchFormFieldLabel>
+                    <TextInput
+                      value={location}
+                      onChangeText={setLocation}
+                      placeholder="e.g., Golden Gate Park Courts"
+                      placeholderTextColor={createMatch.placeholder}
+                      onFocus={() => setLocationFocused(true)}
+                      onBlur={() => setLocationFocused(false)}
+                      style={inputStyle(locationFocused)}
+                      accessibilityLabel="Match location"
+                    />
                   </View>
-                  {index < sets.length - 1 && (
+
+                  {showScheduledToggle ? (
                     <View
                       style={{
-                        height: 1,
-                        backgroundColor: colors.border,
-                        marginVertical: 12,
-                        marginHorizontal: 20,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingVertical: 4,
                       }}
-                    />
-                  )}
+                    >
+                      <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text
+                          style={{
+                            fontFamily: createMatch.fonts.bold,
+                            fontSize: 15,
+                            color: createMatch.ink,
+                          }}
+                        >
+                          Scheduled
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: createMatch.fonts.regular,
+                            fontSize: 13,
+                            color: createMatch.muted,
+                            marginTop: 2,
+                          }}
+                        >
+                          Mark as scheduled for later
+                        </Text>
+                      </View>
+                      <Switch checked={isScheduled} onCheckedChange={handleScheduledToggle} />
+                    </View>
+                  ) : null}
+
+                  {match.status === "scheduled" ? (
+                    <View
+                      style={{
+                        borderRadius: 12,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        backgroundColor: createMatch.notesBtnBg,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: createMatch.fonts.regular,
+                          fontSize: 14,
+                          color: createMatch.ink,
+                          lineHeight: 20,
+                        }}
+                      >
+                        {hasScores
+                          ? "Scores can't stay on a Scheduled match. Tap Start Live to save scores, or clear scores to keep it scheduled."
+                          : "When play starts, tap Start Live. Enter scores below, then Save & Complete when the match is done."}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-              ))}
 
-              {sets.length < 5 && (
-                <TouchableOpacity
-                  onPress={addSet}
-                  className="border border-dashed border-border/60 rounded-xl p-4 flex-row items-center justify-center mt-2"
+                {canShowScoreSection ? (
+                  <View
+                    onLayout={(e) => {
+                      scoresSectionY.current = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <MatchFormSectionTitle>Score</MatchFormSectionTitle>
+                    <View style={{ marginBottom: 24 }}>
+                      <CreateMatchScoreEditor sets={sets} onChange={setSets} />
+                    </View>
+                  </View>
+                ) : null}
+
+                <View
+                  onLayout={(e) => {
+                    notesSectionY.current = e.nativeEvent.layout.y;
+                  }}
                 >
-                  <LucideIcon name="Plus" size={20} className="text-muted-foreground mr-2" />
-                  <Text className="text-body font-medium text-muted-foreground">Add Set</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        ) : null}
-
-        {/* Section 4: Notes */}
-        <View
-          className="mb-10"
-          onLayout={(e) => {
-            notesSectionY.current = e.nativeEvent.layout.y;
-          }}
-        >
-          <Text className="text-h3 font-semibold text-foreground mb-4">Notes</Text>
-          <Textarea
-            placeholder="Add match notes"
-            value={notes}
-            onChangeText={setNotes}
-            numberOfLines={4}
-            className="min-h-[100px]"
-          />
-        </View>
-
-        {/* Section 5: Privacy — last scroll block; action bar sits below viewport */}
-        <View className="mb-4">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Privacy</Text>
-          <View className="flex-row items-center justify-between py-2">
-            <View className="flex-1 mr-4">
-              <View className="flex-row items-center gap-2">
-                <Text className="text-body font-medium text-foreground">Public</Text>
-                <TouchableOpacity className="p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <LucideIcon name="Info" size={16} color={colors.muted} />
-                </TouchableOpacity>
-              </View>
-              <Text className="text-caption text-muted-foreground mt-0.5">
-                Public matches appear in Explore
-              </Text>
-            </View>
-            <Switch checked={isPublic} onCheckedChange={setIsPublic} />
-          </View>
-        </View>
-          </>
-        )}
-            </ScrollView>
-
-            <View
-              className="bg-background border-t border-border px-5 pt-4"
-              style={{
-                flexShrink: 0,
-                paddingBottom: Math.max(insets.bottom, 12),
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: -2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 8,
-                elevation: 8,
-              }}
-            >
-              {!notesOnlyUi && playerA && playerB && (
-                <View className="mb-4 pb-4 border-b border-border/40">
-                  <Text className="text-caption text-muted-foreground/70 mb-1">Match Preview</Text>
-                  <Text className="text-body font-medium text-foreground">
-                    {playerA} vs {playerB}
-                  </Text>
-                  <View className="flex-row items-center gap-3 mt-1">
-                    <Text className="text-caption text-muted-foreground">
-                      Date: {formatDate(matchDate)}
-                    </Text>
-                    {location && (
-                      <>
-                        <Text className="text-caption text-muted-foreground">•</Text>
-                        <Text className="text-caption text-muted-foreground">{location}</Text>
-                      </>
-                    )}
+                  <MatchFormSectionTitle>Notes</MatchFormSectionTitle>
+                  <View style={{ marginBottom: 24 }}>
+                    <TextInput
+                      value={notes}
+                      onChangeText={setNotes}
+                      placeholder="Add match notes"
+                      placeholderTextColor={createMatch.placeholder}
+                      multiline
+                      textAlignVertical="top"
+                      onFocus={() => setNotesFocused(true)}
+                      onBlur={() => setNotesFocused(false)}
+                      style={{
+                        ...inputStyle(notesFocused),
+                        minHeight: 80,
+                        paddingTop: 14,
+                      }}
+                      accessibilityLabel="Match notes"
+                    />
                   </View>
                 </View>
-              )}
 
-              <View className="gap-3">
-                {notesOnlyUi || isNotesFocus ? (
-                  <Button onPress={handleSave} size="lg" disabled={isSubmitting}>
-                    {isSubmitting ? (
-                      <ActivityIndicator color="white" />
-                    ) : (
-                      <Text className="text-button text-primary-foreground">Save Notes</Text>
-                    )}
-                  </Button>
-                ) : canShowCompleteActions ? (
-                  <>
-                    {isScheduledMatch ? (
-                      <>
-                        <Button
-                          onPress={handleStartLive}
-                          size="lg"
-                          style={{ backgroundColor: brand.blue }}
-                          disabled={isSubmitting}
-                          accessibilityLabel="Start match as live"
+                <MatchFormSectionTitle>Privacy</MatchFormSectionTitle>
+                <View
+                  style={{
+                    backgroundColor: createMatch.cardBg,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: createMatch.cardBorder,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    marginBottom: 16,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text
+                          style={{
+                            fontFamily: createMatch.fonts.bold,
+                            fontSize: 15,
+                            color: createMatch.ink,
+                          }}
                         >
-                          {isSubmitting ? (
-                            <ActivityIndicator color="white" />
-                          ) : (
-                            <Text className="text-button text-white">Start Live</Text>
-                          )}
-                        </Button>
-                        <Button
-                          onPress={handleSave}
-                          size="lg"
-                          variant="outline"
-                          disabled={isSubmitting || hasScores}
-                          className={isSubmitting || hasScores ? "opacity-50" : ""}
-                          accessibilityLabel="Save scheduled match without scores"
-                        >
-                          {isSubmitting ? (
-                            <ActivityIndicator color={brand.blue} />
-                          ) : (
-                            <Text className="text-button text-foreground">
-                              {scheduledMatchSaveLabel(hasScores)}
-                            </Text>
-                          )}
-                        </Button>
-                      </>
-                    ) : (
-                      <Button onPress={handleSave} size="lg" disabled={isSubmitting}>
-                        {isSubmitting ? (
-                          <ActivityIndicator color="white" />
-                        ) : (
-                          <Text className="text-button text-primary-foreground">Save Changes</Text>
-                        )}
-                      </Button>
-                    )}
-                    <Button
-                      onPress={handleComplete}
-                      size="lg"
-                      variant="outline"
-                      disabled={!canComplete || isSubmitting}
-                      className={!canComplete || isSubmitting ? "opacity-50" : ""}
-                      accessibilityLabel="Save and complete match"
-                    >
-                      {isSubmitting ? (
-                        <ActivityIndicator color="#2563eb" />
-                      ) : (
-                        <Text className="text-button text-foreground">Save & Complete</Text>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <Button onPress={handleSave} size="lg" disabled={isSubmitting}>
-                    {isSubmitting ? (
-                      <ActivityIndicator color="white" />
-                    ) : (
-                      <Text className="text-button text-primary-foreground">Save Changes</Text>
-                    )}
-                  </Button>
-                )}
-              </View>
-            </View>
-          </View>
+                          Public
+                        </Text>
+                        <LucideIcon name="Info" size={15} color={createMatch.muted} />
+                      </View>
+                      <Text
+                        style={{
+                          fontFamily: createMatch.fonts.regular,
+                          fontSize: 13,
+                          color: createMatch.muted,
+                          marginTop: 2,
+                        }}
+                      >
+                        Public matches appear in Explore
+                      </Text>
+                    </View>
+                    <Switch checked={isPublic} onCheckedChange={setIsPublic} />
+                  </View>
+                </View>
+              </>
+            )}
+          </ScrollView>
         </KeyboardAvoidingView>
+
+        <MatchFormFooter
+          bottomInset={insets.bottom}
+          primaryLabel={footerPrimaryLabel}
+          onPrimary={footerOnPrimary}
+          isSubmitting={isSubmitting}
+          secondaryLabel={footerSecondaryLabel}
+          onSecondary={footerOnSecondary}
+          secondaryDisabled={footerSecondaryDisabled}
+        />
 
         <CalendarPicker
           visible={showDatePicker}
           selectedDate={matchDate}
-          onConfirm={handleDateConfirm}
-          onCancel={handleDateCancel}
+          onConfirm={(date) => {
+            setMatchDate(date);
+            setShowDatePicker(false);
+          }}
+          onCancel={() => setShowDatePicker(false)}
           minimumDate={getMinDate()}
           maximumDate={getMaxDate()}
+        />
+        <TimePicker
+          visible={showTimePicker}
+          selectedTime={matchTime}
+          onConfirm={(time) => {
+            setMatchTime(time);
+            setShowTimePicker(false);
+          }}
+          onCancel={() => setShowTimePicker(false)}
         />
       </View>
     </>

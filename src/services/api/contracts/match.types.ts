@@ -6,7 +6,7 @@ import type { ApiEmptyData, ApiSuccessEnvelope, PaginatedResponseDto } from "./c
 
 // --- Enums (§10) ---
 
-export type MatchStatus = "SCHEDULED" | "LIVE" | "IN_PROGRESS" | "FINISHED";
+export type MatchStatus = "SCHEDULED" | "LIVE" | "IN_PROGRESS" | "FINISHED" | "CANCELED" | "CANCELLED";
 
 export type MatchPlayerSide = "PLAYER_1" | "PLAYER_2";
 

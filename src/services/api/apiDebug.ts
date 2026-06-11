@@ -61,7 +61,21 @@ export function logApiResponseOk(
 export function logApiNetworkOrParseError(method: string, url: string, err: unknown): void {
   if (!isApiDebugEnabled()) return;
   const msg = err instanceof Error ? err.message : String(err);
-  console.warn(`${SHOTVISION_API_LOG_PREFIX} ✗ ${method} ${url} ${msg}`);
+  const status =
+    err != null &&
+    typeof err === "object" &&
+    "statusCode" in err &&
+    typeof (err as { statusCode: unknown }).statusCode === "number"
+      ? ` HTTP ${(err as { statusCode: number }).statusCode}`
+      : "";
+  const code =
+    err != null &&
+    typeof err === "object" &&
+    "code" in err &&
+    typeof (err as { code: unknown }).code === "string"
+      ? ` [${(err as { code: string }).code}]`
+      : "";
+  console.warn(`${SHOTVISION_API_LOG_PREFIX} ✗ ${method} ${url}${status}${code} ${msg}`);
 }
 
 export function logShotVisionUi(screen: string, detail: string): void {

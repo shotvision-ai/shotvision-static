@@ -33,11 +33,6 @@ export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
   const snapshot = useMatchLikeStore((s) => s.overrides[match.id]);
   const isPending = useMatchLikeStore((s) => Boolean(s.pendingIds[match.id]));
 
-  const beginPending = useMatchLikeStore((s) => s.beginPending);
-  const endPending = useMatchLikeStore((s) => s.endPending);
-  const setSnapshot = useMatchLikeStore((s) => s.setSnapshot);
-  const applyToggleResult = useMatchLikeStore((s) => s.applyToggleResult);
-
   const isLiked = snapshot?.isLiked ?? Boolean(match.isLiked);
   const likesCount =
     snapshot?.likesCount ??
@@ -77,8 +72,9 @@ export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
     });
 
     inFlightRef.current = true;
-    beginPending(match.id);
-    setSnapshot(match.id, { isLiked: nextLiked, likesCount: optimisticCount }, "optimistic");
+    const store = useMatchLikeStore.getState();
+    store.beginPending(match.id);
+    store.setSnapshot(match.id, { isLiked: nextLiked, likesCount: optimisticCount }, "optimistic");
 
     try {
       const result = previousSnapshot.isLiked
@@ -91,31 +87,22 @@ export function useMatchLike(match: Match, options: UseMatchLikeOptions = {}) {
         likesCount: result.likesCount,
       });
 
-      applyToggleResult(match.id, result);
+      useMatchLikeStore.getState().applyToggleResult(match.id, result);
     } catch (error) {
       logLikeInteraction("api failed — rollback", {
         matchId: match.id,
         restore: previousSnapshot,
       });
-      setSnapshot(match.id, previousSnapshot, "rollback");
+      useMatchLikeStore.getState().setSnapshot(match.id, previousSnapshot, "rollback");
       Alert.alert(
         "Error",
         getUserFriendlyErrorMessage(error, "Failed to update like. Please try again.")
       );
     } finally {
       inFlightRef.current = false;
-      endPending(match.id);
+      useMatchLikeStore.getState().endPending(match.id);
     }
-  }, [
-    allowToggle,
-    match,
-    user?.id,
-    isOwnDashboardMatch,
-    beginPending,
-    endPending,
-    setSnapshot,
-    applyToggleResult,
-  ]);
+  }, [allowToggle, match, user?.id, isOwnDashboardMatch]);
 
   return {
     isLiked,

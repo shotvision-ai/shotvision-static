@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuthStore } from "../../src/stores/authStore";
 import {
   View,
@@ -20,16 +20,26 @@ import { useUserStats } from "../../src/hooks/useUserStats";
 import { winRateFractionToPercent } from "../../src/utils/userStats";
 import { TRY_AGAIN_LABEL } from "~/components/ui/AsyncListState";
 import { HEADER_ICON_HIT_SLOP } from "../../src/utils/touchA11y";
+import { useMatchCalendarStore } from "../../src/stores/matchCalendarStore";
+import { fetchScheduledMatchDaysInMonth } from "../../src/services/calendar/matchCalendarSync";
 
-const BLUE = "#2563eb";
-
-function ProgressBar({ value, max, color = BLUE }: { value: number; max: number; color?: string }) {
+function ProgressBar({
+  value,
+  max,
+  color,
+  trackColor,
+}: {
+  value: number;
+  max: number;
+  color?: string;
+  trackColor?: string;
+}) {
   const pct = Math.min(max > 0 ? (value / max) * 100 : 0, 100);
   return (
     <View
       style={{
         height: 8,
-        backgroundColor: "rgba(0,0,0,0.06)",
+        backgroundColor: trackColor ?? "rgba(0,0,0,0.06)",
         borderRadius: 4,
         overflow: "hidden",
       }}
@@ -46,8 +56,17 @@ function ProgressBar({ value, max, color = BLUE }: { value: number; max: number;
   );
 }
 
-function MatchCalendar({ year, month }: { year: number; month: number }) {
+function MatchCalendar({
+  year,
+  month,
+  highlightedDays,
+}: {
+  year: number;
+  month: number;
+  highlightedDays: Set<number>;
+}) {
   const { colors } = useAppTheming();
+  const dayHighlightColor = colors.primary;
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: (number | null)[] = [];
@@ -83,12 +102,16 @@ function MatchCalendar({ year, month }: { year: number; month: number }) {
                       borderRadius: 16,
                       alignItems: "center",
                       justifyContent: "center",
+                      backgroundColor: highlightedDays.has(day)
+                        ? "rgba(37, 99, 235, 0.14)"
+                        : "transparent",
                     }}
                   >
                     <Text
                       style={{
                         fontSize: 13,
-                        color: colors.foreground,
+                        fontWeight: highlightedDays.has(day) ? "700" : "400",
+                        color: highlightedDays.has(day) ? dayHighlightColor : colors.foreground,
                       }}
                     >
                       {day}
@@ -110,14 +133,20 @@ export default function Profile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheming();
+  const brandPrimary = colors.primary;
   const { user, isLoading, isHydrated, logout } = useAuth();
   const refreshUser = useAuthStore((s) => s.refreshUser);
   const currentUserAvatar = useCurrentUserAvatarProps(user?.id);
   const { stats, isLoading: statsLoading, error: statsError, refresh: refreshStats } = useUserStats(!!user);
 
+  const lastProfileRefreshAtRef = useRef(0);
+
   useFocusEffect(
     useCallback(() => {
       if (!user?.id) return;
+      const now = Date.now();
+      if (now - lastProfileRefreshAtRef.current < 30_000) return;
+      lastProfileRefreshAtRef.current = now;
       void refreshUser({ swallowError: true });
     }, [user?.id, refreshUser])
   );
@@ -130,6 +159,22 @@ export default function Profile() {
 
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+  const [highlightedDays, setHighlightedDays] = useState<Set<number>>(new Set());
+  const calendarSyncEnabled = useMatchCalendarStore((s) => s.enabled);
+
+  useEffect(() => {
+    if (!user?.id || !calendarSyncEnabled) {
+      setHighlightedDays(new Set());
+      return;
+    }
+    let cancelled = false;
+    void fetchScheduledMatchDaysInMonth(user.id, calendarYear, calendarMonth).then((days) => {
+      if (!cancelled) setHighlightedDays(days);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, calendarYear, calendarMonth, calendarSyncEnabled]);
 
   const MONTH_NAMES = [
     "January",
@@ -182,7 +227,7 @@ export default function Profile() {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={BLUE} />
+          <ActivityIndicator size="large" color={brandPrimary} />
           <Text className="text-body text-muted-foreground mt-4">Loading profile…</Text>
         </View>
       </SafeAreaView>
@@ -242,7 +287,9 @@ export default function Profile() {
             {user.location && (
               <Text className="text-body text-muted-foreground mt-1.5">{user.location}</Text>
             )}
-            <Text className="text-caption text-muted-foreground/70 mt-1">Tennis Player</Text>
+            <Text className="text-caption text-muted-foreground/70 mt-1 text-center px-4">
+              {user.bio?.trim() ? user.bio.trim() : "No bio yet. Add one from Edit Profile."}
+            </Text>
           </View>
           <TouchableOpacity
             onPress={() => router.push("/edit-profile")}
@@ -251,14 +298,14 @@ export default function Profile() {
             style={{
               marginTop: 16,
               borderWidth: 2,
-              borderColor: BLUE,
+              borderColor: brandPrimary,
               borderRadius: 24,
               paddingHorizontal: 24,
               paddingVertical: 12,
               minHeight: 44,
             }}
           >
-            <Text style={{ fontSize: 15, fontWeight: "600", color: BLUE }}>Edit Profile</Text>
+            <Text style={{ fontSize: 15, fontWeight: "600", color: brandPrimary }}>Edit Profile</Text>
           </TouchableOpacity>
         </View>
 
@@ -318,7 +365,7 @@ export default function Profile() {
             accessibilityLabel="Share profile"
             className="bg-card rounded-2xl border border-border items-center justify-center"
             style={{
-              shadowColor: BLUE,
+              shadowColor: brandPrimary,
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.1,
               shadowRadius: 6,
@@ -331,8 +378,8 @@ export default function Profile() {
               gap: 6,
             }}
           >
-            <LucideIcon name="Share2" size={16} color={BLUE} />
-            <Text style={{ fontSize: 13, fontWeight: "600", color: BLUE }}>Share</Text>
+            <LucideIcon name="Share2" size={16} color={brandPrimary} />
+            <Text style={{ fontSize: 13, fontWeight: "600", color: brandPrimary }}>Share</Text>
           </TouchableOpacity>
         </View>
 
@@ -352,11 +399,11 @@ export default function Profile() {
             <View className="mb-4">
               <Text className="text-body text-muted-foreground mb-3">{statsError}</Text>
               <TouchableOpacity onPress={() => void refreshStats()} className="self-start">
-                <Text style={{ fontSize: 14, fontWeight: "600", color: BLUE }}>{TRY_AGAIN_LABEL}</Text>
+                <Text style={{ fontSize: 14, fontWeight: "600", color: brandPrimary }}>{TRY_AGAIN_LABEL}</Text>
               </TouchableOpacity>
             </View>
           ) : statsLoading ? (
-            <ActivityIndicator size="small" color={BLUE} className="mb-4" />
+            <ActivityIndicator size="small" color={brandPrimary} className="mb-4" />
           ) : null}
           <View className="flex-row justify-between">
             <View className="flex-1 items-center">
@@ -364,7 +411,7 @@ export default function Profile() {
               <Text className="text-caption text-muted-foreground">Matches</Text>
             </View>
             <View className="flex-1 items-center">
-              <Text style={{ fontSize: 22, fontWeight: "800", color: BLUE, marginBottom: 4 }}>
+              <Text style={{ fontSize: 22, fontWeight: "800", color: brandPrimary, marginBottom: 4 }}>
                 {wins}
               </Text>
               <Text className="text-caption text-muted-foreground">Wins</Text>
@@ -376,7 +423,7 @@ export default function Profile() {
               <Text className="text-caption text-muted-foreground">Losses</Text>
             </View>
             <View className="flex-1 items-center">
-              <Text style={{ fontSize: 22, fontWeight: "800", color: BLUE, marginBottom: 4 }}>
+              <Text style={{ fontSize: 22, fontWeight: "800", color: brandPrimary, marginBottom: 4 }}>
                 {winRate}%
               </Text>
               <Text className="text-caption text-muted-foreground">Win Rate</Text>
@@ -402,18 +449,28 @@ export default function Profile() {
             <View>
               <View className="flex-row items-center justify-between mb-2">
                 <Text className="text-body font-medium text-foreground">Win Rate</Text>
-                <Text style={{ fontSize: 14, fontWeight: "700", color: BLUE }}>{winRate}%</Text>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: brandPrimary }}>{winRate}%</Text>
               </View>
-              <ProgressBar value={winRate} max={100} color={BLUE} />
+              <ProgressBar
+                value={winRate}
+                max={100}
+                color={brandPrimary}
+                trackColor={colors.dividerSubtle}
+              />
             </View>
             <View>
               <View className="flex-row items-center justify-between mb-2">
                 <Text className="text-body font-medium text-foreground">Wins This Season</Text>
-                <Text style={{ fontSize: 14, fontWeight: "700", color: BLUE }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: brandPrimary }}>
                   {wins}/{matches}
                 </Text>
               </View>
-              <ProgressBar value={wins} max={winsMax} color={BLUE} />
+              <ProgressBar
+                value={wins}
+                max={winsMax}
+                color={brandPrimary}
+                trackColor={colors.dividerSubtle}
+              />
             </View>
           </View>
         </View>
@@ -433,18 +490,23 @@ export default function Profile() {
             MONTHLY PERFORMANCE
           </Text>
           {statsLoading ? (
-            <ActivityIndicator size="small" color={BLUE} />
+            <ActivityIndicator size="small" color={brandPrimary} />
           ) : stats?.monthlyPerformance?.length ? (
             <View className="gap-3">
               {stats.monthlyPerformance.slice(0, 6).map((point) => (
                 <View key={point.month}>
                   <View className="flex-row items-center justify-between mb-1">
                     <Text className="text-body font-medium text-foreground">{point.month}</Text>
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: BLUE }}>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: brandPrimary }}>
                       {winRateFractionToPercent(point.winRate)}%
                     </Text>
                   </View>
-                  <ProgressBar value={point.wins} max={Math.max(point.totalMatches, 1)} color={BLUE} />
+                  <ProgressBar
+                    value={point.wins}
+                    max={Math.max(point.totalMatches, 1)}
+                    color={brandPrimary}
+                    trackColor={colors.dividerSubtle}
+                  />
                   <Text className="text-caption text-muted-foreground mt-1">
                     {point.wins}W · {point.losses}L · {point.totalMatches} matches
                   </Text>
@@ -519,9 +581,15 @@ export default function Profile() {
               </TouchableOpacity>
             </View>
           </View>
-          <MatchCalendar year={calendarYear} month={calendarMonth} />
+          <MatchCalendar
+            year={calendarYear}
+            month={calendarMonth}
+            highlightedDays={highlightedDays}
+          />
           <Text className="text-caption text-muted-foreground mt-3 pt-3 border-t border-border/30">
-            Match days will highlight here when your schedule is available.
+            {calendarSyncEnabled
+              ? "Highlighted days have scheduled matches synced from My Matches."
+              : "Turn on calendar sync in Settings to highlight scheduled match days."}
           </Text>
         </View>
 

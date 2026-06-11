@@ -9,6 +9,17 @@ import { useMatchReportStore } from "../stores/matchReportStore";
 import { isValidMatchIdForReport, resolveMatchReported } from "../utils/matchReport";
 import { devLog } from "../utils/devLog";
 
+async function syncReportStateFromApi(userId: string): Promise<Set<string> | null> {
+  try {
+    const ids = await reportService.getMyReportedMatchIds();
+    await useMatchReportStore.getState().hydrateForUser(userId, ids);
+    return new Set(ids.map((id) => id.trim()).filter(Boolean));
+  } catch (error) {
+    devLog.warn("[useMatchReport] report list sync failed:", error);
+    return null;
+  }
+}
+
 export function useMatchReport(match: Match) {
   const { user } = useAuth();
   const userId = user?.id ?? "";
@@ -44,14 +55,47 @@ export function useMatchReport(match: Match) {
       setIsSubmitting(true);
       try {
         const result = await reportService.reportMatch(match.id, { reason, notes });
-        const reported = result.reportedByMe !== false;
-        await setReported(userId, match.id, reported);
-        setIsReported(reported);
+        const reportedViaResponse = result.reportedByMe !== false;
+        await setReported(userId, match.id, reportedViaResponse);
+        setIsReported(reportedViaResponse);
+
+        const syncedIds = await syncReportStateFromApi(userId);
+        if (syncedIds) {
+          const reported = syncedIds.has(match.id.trim());
+          await setReported(userId, match.id, reported);
+          setIsReported(reported);
+        }
+
         return true;
       } catch (error) {
+        if (
+          error instanceof AppError &&
+          (error.statusCode === 404 || error.statusCode === 501 || error.statusCode === 503)
+        ) {
+          Alert.alert(
+            "Report unavailable",
+            getUserFriendlyErrorMessage(
+              error,
+              "Reporting is temporarily unavailable. Please try again later."
+            )
+          );
+          return false;
+        }
+        if (error instanceof AppError && error.statusCode === 403) {
+          Alert.alert(
+            "Cannot report",
+            getUserFriendlyErrorMessage(
+              error,
+              "Only public matches on Explore can be reported."
+            )
+          );
+          return false;
+        }
         if (error instanceof AppError && (error.statusCode === 409 || error.code === "ALREADY_REPORTED")) {
-          await setReported(userId, match.id, true);
-          setIsReported(true);
+          const syncedIds = await syncReportStateFromApi(userId);
+          const reported = syncedIds ? syncedIds.has(match.id.trim()) : true;
+          await setReported(userId, match.id, reported);
+          setIsReported(reported);
           return true;
         }
         devLog.error("[useMatchReport] submit failed:", error);
@@ -74,11 +118,25 @@ export function useMatchReport(match: Match) {
     setIsSubmitting(true);
     try {
       const result = await reportService.undoReport(match.id);
-      const reported = Boolean(result.reportedByMe);
+      const syncedIds = await syncReportStateFromApi(userId);
+      const reported = syncedIds ? syncedIds.has(match.id.trim()) : Boolean(result.reportedByMe);
       await setReported(userId, match.id, reported);
       setIsReported(reported);
       return !reported;
     } catch (error) {
+      if (
+        error instanceof AppError &&
+        (error.statusCode === 501 || error.statusCode === 503)
+      ) {
+        Alert.alert(
+          "Report unavailable",
+          getUserFriendlyErrorMessage(
+            error,
+            "Reporting is temporarily unavailable. Please try again later."
+          )
+        );
+        return false;
+      }
       if (error instanceof AppError && error.statusCode === 404) {
         await setReported(userId, match.id, false);
         setIsReported(false);

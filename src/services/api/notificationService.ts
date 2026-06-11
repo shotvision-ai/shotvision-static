@@ -23,6 +23,22 @@ export interface ApiNotificationDto {
   timestamp?: string;
 }
 
+export interface MatchUpdateNotificationRequest {
+  matchId: string;
+  actorUserId?: string;
+  participantUserIds?: string[];
+  dedupeKey: string;
+  title: string;
+  message: string;
+  reason:
+    | "match_updated"
+    | "match_completed"
+    | "match_started_live"
+    | "match_visibility_changed"
+    | "match_cancelled";
+  metadata?: Record<string, string | number | boolean | null>;
+}
+
 function unwrapNotificationList(data: unknown): ApiNotificationDto[] {
   if (Array.isArray(data)) return data as ApiNotificationDto[];
   if (data && typeof data === "object") {
@@ -93,5 +109,13 @@ export const notificationService = {
 
   async deleteAll(): Promise<void> {
     await apiClient.delete<void>("/api/notifications");
+  },
+
+  /**
+   * Best-effort participant fan-out for match update notifications.
+   * Backend should resolve recipients from `matchId` + participants and dedupe via `dedupeKey`.
+   */
+  async notifyMatchUpdated(payload: MatchUpdateNotificationRequest): Promise<void> {
+    await apiClient.post<void>("/api/notifications/match-updates", payload);
   },
 };

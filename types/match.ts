@@ -1,4 +1,4 @@
-export type MatchStatus = "live" | "completed" | "scheduled";
+export type MatchStatus = "live" | "completed" | "scheduled" | "cancelled";
 
 /** When present on API payloads, default avatars use the female (9–12) or male (13–16) set. */
 export type MatchParticipantGender = "male" | "female";
@@ -33,6 +33,7 @@ export interface Match {
   isPublic: boolean;
   sets: MatchSet[];
   notes?: string;
+  cancellationReason?: string;
   winner?: "playerA" | "playerB";
   scheduledDate?: string; // ISO date for scheduled matches
   likesCount?: number;

@@ -23,8 +23,11 @@ import {
   supplementExploreWithViewerPublicMatches,
 } from "../utils/exploreFeedSync";
 import { buildExploreApiIdSet, logExplorePipelineStats } from "../utils/explorePublicSync";
+import { syncMatchSetsFromMatches } from "../stores/matchSetsStore";
+import { hydrateMissingMatchSets } from "../utils/hydrateMissingMatchSets";
 import { useAuth } from "../context/AuthContext";
 import { useMatchLikeStore } from "../stores/matchLikeStore";
+import { useMatchVisibilityStore } from "../stores/matchVisibilityStore";
 
 interface UseMatchesOptions {
   status?: MatchStatusFilter;
@@ -39,6 +42,7 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
   const [matches, setMatches] = useState<Match[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(true);
@@ -47,6 +51,7 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
 
   /** Monotonic id — stale responses are ignored (prevents wrong list after fast filter changes). */
   const requestSeqRef = useRef(0);
+  const hasCachedRowsRef = useRef(false);
 
   const fetchMatches = useCallback(
     async (pageNum: number, refresh: boolean = false): Promise<boolean> => {
@@ -54,36 +59,46 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
 
       if (refresh) {
         setIsRefreshing(true);
-      } else {
+      } else if (pageNum > 1) {
+        setIsLoadingMore(true);
+      } else if (!hasCachedRowsRef.current) {
         setIsLoading(true);
       }
       setError(null);
 
       try {
-        if (user?.id) {
-          const likeStore = useMatchLikeStore.getState();
-          if (likeStore.hydratedForUserId !== user.id) {
-            await likeStore.hydrateForUser(user.id);
-          }
-        }
+        const userId = user?.id?.trim();
+        const likeStore = useMatchLikeStore.getState();
+        const likeHydratePromise =
+          userId && likeStore.hydratedForUserId !== userId
+            ? likeStore.hydrateForUser(userId)
+            : Promise.resolve();
 
         let response: PaginatedResponse<Match>;
 
         if (type === "explore") {
-          const ownershipSync = ensureMatchOwnershipSynced(
-            user?.id,
-            refresh ? { force: true } : undefined
-          ).catch((err) => {
+          const visibility = useMatchVisibilityStore.getState();
+          const forceOwnership =
+            visibility.exploreStale || visibility.myMatchesStale;
+
+          const ownershipSync = ensureMatchOwnershipSynced(user?.id, {
+            force: forceOwnership,
+          }).catch((err) => {
             devLog.warn("[useMatches:explore] ownership sync failed (continuing):", err);
           });
 
           const [exploreResponse] = await Promise.all([
             matchService.getExploreMatches(pageNum, limit, status),
             ownershipSync,
+            likeHydratePromise,
           ]);
           response = exploreResponse;
         } else {
-          response = await matchService.getMyMatches(pageNum, limit, status);
+          const [myResponse] = await Promise.all([
+            matchService.getMyMatches(pageNum, limit, status),
+            likeHydratePromise,
+          ]);
+          response = myResponse;
         }
 
         if (requestId !== requestSeqRef.current) {
@@ -138,10 +153,18 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
           );
         }
 
-        if (refresh) {
+        syncMatchSetsFromMatches(items);
+        items = await hydrateMissingMatchSets(items);
+
+        if (refresh || pageNum === 1) {
           setMatches(items);
+          hasCachedRowsRef.current = items.length > 0;
         } else {
-          setMatches((prev) => dedupeExploreFeedMatches([...prev, ...items]));
+          setMatches((prev) => {
+            const next = dedupeExploreFeedMatches([...prev, ...items]);
+            hasCachedRowsRef.current = next.length > 0;
+            return next;
+          });
         }
 
         const more =
@@ -168,6 +191,7 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
         if (requestId === requestSeqRef.current) {
           setIsLoading(false);
           setIsRefreshing(false);
+          setIsLoadingMore(false);
         }
       }
     },
@@ -178,15 +202,21 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
     if (!enabled) {
       requestSeqRef.current += 1;
       setMatches([]);
+      hasCachedRowsRef.current = false;
       setError(null);
       setIsLoading(false);
       setIsRefreshing(false);
+      setIsLoadingMore(false);
       setHasMore(true);
       setPage(1);
       return;
     }
 
-    void fetchMatches(1, true);
+    setMatches([]);
+    hasCachedRowsRef.current = false;
+    setPage(1);
+    setHasMore(true);
+    void fetchMatches(1, false);
     return () => {
       requestSeqRef.current += 1;
     };
@@ -206,6 +236,7 @@ export const useMatches = (options: UseMatchesOptions = {}) => {
     matches,
     isLoading,
     isRefreshing,
+    isLoadingMore,
     error,
     hasMore,
     refresh,

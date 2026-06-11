@@ -1,4 +1,5 @@
 import type { Match } from "../../types/match";
+import { applyMatchSets } from "../stores/matchSetsStore";
 import { resolveMatchLifecycleFields } from "./matchEditEligibility";
 
 /**
@@ -12,6 +13,6 @@ export function enrichMyDashboardMatches(items: Match[], viewerUserId: string | 
     const withCreator = m.creatorId?.trim()
       ? m
       : { ...m, creatorId: viewerUserId };
-    return resolveMatchLifecycleFields(withCreator);
+    return resolveMatchLifecycleFields(applyMatchSets(withCreator));
   });
 }

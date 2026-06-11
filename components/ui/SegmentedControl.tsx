@@ -13,17 +13,19 @@ interface SegmentedControlProps {
   onChange: (value: string) => void;
 }
 
-const PRIMARY = "#2563eb";
-
 export function SegmentedControl({ options, selectedValue, onChange }: SegmentedControlProps) {
   const { theme } = useTheme();
   const isDark = theme.name === "dark";
+  const primary = theme.colors.primary ?? "hsl(221 83% 53%)";
+  const onPrimary = theme.colors.primaryForeground ?? "hsl(0 0% 100%)";
+  const trackBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(37,99,235,0.08)";
+  const inactiveLabel = theme.colors.mutedForeground ?? (isDark ? "rgba(255,255,255,0.5)" : "#6b7280");
 
   return (
     <View
       style={{
         flexDirection: "row",
-        backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(37,99,235,0.07)",
+        backgroundColor: trackBg,
         borderRadius: 14,
         padding: 4,
         height: 44,
@@ -43,8 +45,8 @@ export function SegmentedControl({ options, selectedValue, onChange }: Segmented
               borderRadius: 10,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: isSelected ? PRIMARY : "transparent",
-              shadowColor: isSelected ? PRIMARY : "transparent",
+              backgroundColor: isSelected ? primary : "transparent",
+              shadowColor: isSelected ? primary : "transparent",
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: isSelected ? 0.3 : 0,
               shadowRadius: 4,
@@ -56,7 +58,7 @@ export function SegmentedControl({ options, selectedValue, onChange }: Segmented
               style={{
                 fontSize: 13,
                 fontWeight: isSelected ? "700" : "500",
-                color: isSelected ? "#ffffff" : isDark ? "rgba(255,255,255,0.5)" : "#6b7280",
+                color: isSelected ? onPrimary : inactiveLabel,
                 letterSpacing: 0.1,
               }}
             >

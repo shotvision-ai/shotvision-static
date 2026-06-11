@@ -2,10 +2,17 @@ import { TouchableOpacity, Animated, Platform } from "react-native";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useRouter } from "expo-router";
 import { useRef } from "react";
+import { exploreColors } from "~/lib/exploreDesign";
 
-export function FloatingActionButton() {
+type FloatingActionButtonProps = {
+  /** Safe-area bottom inset so FAB clears the tab bar. */
+  bottomInset?: number;
+};
+
+export function FloatingActionButton({ bottomInset = 0 }: FloatingActionButtonProps) {
   const router = useRouter();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const tabBarClearance = Platform.OS === "web" ? 0 : 56;
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
@@ -26,7 +33,7 @@ export function FloatingActionButton() {
       style={{
         position: "absolute",
         right: 20,
-        bottom: Platform.OS === "web" ? 20 : 80,
+        bottom: Math.max(20, 20 + bottomInset + tabBarClearance),
         transform: [{ scale: scaleAnim }],
       }}
     >
@@ -40,19 +47,19 @@ export function FloatingActionButton() {
         style={{
           width: 56,
           height: 56,
-          borderRadius: 28,
-          backgroundColor: "#1d4ed8",
+          borderRadius: 16,
+          backgroundColor: exploreColors.coral,
           alignItems: "center",
           justifyContent: "center",
-          shadowColor: "#1d4ed8",
+          shadowColor: exploreColors.coral,
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.45,
-          shadowRadius: 10,
+          shadowOpacity: 0.35,
+          shadowRadius: 12,
           elevation: 8,
         }}
         activeOpacity={1}
       >
-        <LucideIcon name="Plus" size={28} color="white" />
+        <LucideIcon name="Plus" size={28} color="#FFFFFF" />
       </TouchableOpacity>
     </Animated.View>
   );

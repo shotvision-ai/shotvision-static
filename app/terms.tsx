@@ -13,6 +13,7 @@ import {
   PolicySection,
   usePolicySurfaces,
 } from "~/components/layout/PolicyPrimitives";
+import { SUPPORT_EMAIL } from "~/src/constants/supportContact";
 
 export default function Terms() {
   const insets = useSafeAreaInsets();
@@ -135,7 +136,7 @@ export default function Terms() {
           <PolicySection number="7" title="Contact">
             <PolicyPrimaryCallout>
               <Text style={{ fontSize: 15, fontWeight: "600", color: surfaces.primary.accent }}>
-                support@shotvision.app
+                {SUPPORT_EMAIL}
               </Text>
             </PolicyPrimaryCallout>
           </PolicySection>

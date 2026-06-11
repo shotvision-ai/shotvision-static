@@ -1,3 +1,4 @@
+import React, { memo } from "react";
 import { View, Pressable, TouchableOpacity, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
@@ -6,8 +7,7 @@ import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
-import { useAuth } from "../../src/context/AuthContext";
-import { useCurrentUserAvatarProps } from "../../src/hooks/useCurrentUserAvatar";
+import { useMatchListViewer } from "../../src/context/MatchListViewerContext";
 import {
   isMatchParticipantSelf,
   resolveMatchParticipantImageUrl,
@@ -17,16 +17,17 @@ import { MatchVisibilityControl } from "./MatchVisibilityControl";
 import { OwnerMatchCardActions } from "./OwnerMatchCardActions";
 import { MatchLikeButton } from "./MatchLikeButton";
 import { useAppTheming } from "../../src/hooks/useAppTheming";
+import { MATCH_LIST_CARD as L } from "./matchListCardLayout";
+import { MatchListCardScore } from "./MatchListCardScore";
 
 interface MatchCardProps {
   match: Match;
 }
 
-export function MatchCard({ match }: MatchCardProps) { 
+function MatchCardComponent({ match }: MatchCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
-  const { user: currentUser } = useAuth();
-  const currentUserAvatar = useCurrentUserAvatarProps(currentUser?.id);
+  const { user: currentUser, avatar: currentUserAvatar } = useMatchListViewer();
 
   const { isLiked, likesCount, isLiking, canToggle, handleLike } = useMatchLike(match, {
     isOwnDashboardMatch: true,
@@ -74,6 +75,8 @@ export function MatchCard({ match }: MatchCardProps) {
         ? "#2563eb"
         : match.status === "completed"
           ? "#22c55e"
+          : match.status === "cancelled"
+            ? "#dc2626"
           : "#2563eb";
 
   const cardContainerStyle = {
@@ -92,11 +95,22 @@ export function MatchCard({ match }: MatchCardProps) {
   };
 
   return (
-    <View className="rounded-2xl mb-4 overflow-hidden" style={cardContainerStyle}>
-      <View style={{ height: 4, backgroundColor: accentColor }} />
-      <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 }}>
-        {/* Top row: visibility is its own control; rest opens details */}
-        <View className="flex-row items-start justify-between mb-3">
+    <View
+      className="rounded-xl overflow-hidden"
+      style={{ ...cardContainerStyle, marginBottom: L.cardMarginBottom }}
+    >
+      <View style={{ height: L.accentHeight, backgroundColor: accentColor }} />
+      <View
+        style={{
+          paddingHorizontal: L.padH,
+          paddingTop: L.padTop,
+          paddingBottom: L.padBottom,
+        }}
+      >
+        <View
+          className="flex-row items-start justify-between"
+          style={{ marginBottom: L.rowGap }}
+        >
           <Pressable
             onPress={openMatchDetails}
             style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.7 : 1 })}
@@ -105,16 +119,15 @@ export function MatchCard({ match }: MatchCardProps) {
           >
             {getWinnerText() ? (
               <View className="flex-row items-center">
-                <Text style={{ fontSize: 14, fontWeight: "600", color: "#2563eb" }}>🏆 </Text>
-                <Text style={{ fontSize: 14, fontWeight: "600", color: "#2563eb" }}>
-                  {getWinnerText()}
+                <Text style={{ fontSize: L.winner, fontWeight: "600", color: "#2563eb" }}>
+                  🏆 {getWinnerText()}
                 </Text>
               </View>
             ) : null}
           </Pressable>
           <View className="flex-row items-center gap-2">
             <MatchVisibilityControl match={match} isOwnDashboardMatch variant="chip" />
-            <StatusBadge status={match.status} />
+            <StatusBadge status={match.status} compact />
           </View>
         </View>
 
@@ -124,17 +137,19 @@ export function MatchCard({ match }: MatchCardProps) {
           accessibilityRole="button"
           accessibilityLabel="Open match details"
         >
-        {/* Players Row */}
-        <View className="flex-row items-center justify-between mb-4">
-          {/* Player A */}
+        <View
+          className="flex-row items-center justify-between"
+          style={{ marginBottom: L.sectionGap }}
+        >
           <View className="items-center flex-1">
             <View
               style={{
-                width: 76,
-                height: 76,
-                borderRadius: 38,
-                padding: 3,
-                borderWidth: match.status === "completed" && match.winner === "playerA" ? 2.5 : 0,
+                width: L.avatarRing,
+                height: L.avatarRing,
+                borderRadius: L.avatarRing / 2,
+                padding: 2,
+                borderWidth:
+                  match.status === "completed" && match.winner === "playerA" ? L.winnerRing : 0,
                 borderColor:
                   match.status === "completed" && match.winner === "playerA"
                     ? "#FFD700"
@@ -143,9 +158,9 @@ export function MatchCard({ match }: MatchCardProps) {
             >
               <View
                 style={{
-                  width: 70,
-                  height: 70,
-                  borderRadius: 35,
+                  width: L.avatar,
+                  height: L.avatar,
+                  borderRadius: L.avatar / 2,
                   overflow: "hidden",
                 }}
                 className="bg-muted"
@@ -170,20 +185,20 @@ export function MatchCard({ match }: MatchCardProps) {
                       : match.playerAUserId ?? `${match.id}:playerA`
                   }
                   fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
-                  size={70}
+                  size={L.avatarInner}
                   variant="plain"
                 />
               </View>
             </View>
-            <View className="flex-row items-center mt-3">
+            <View className="flex-row items-center mt-1.5">
               {match.status === "completed" && match.winner === "playerA" && (
-                <LucideIcon name="Trophy" size={14} color="#FFD700" style={{ marginRight: 4 }} />
+                <LucideIcon name="Trophy" size={12} color="#FFD700" style={{ marginRight: 3 }} />
               )}
               <Text
                 className="text-foreground text-center"
-                numberOfLines={2}
+                numberOfLines={1}
                 style={{
-                  fontSize: 18,
+                  fontSize: L.playerName,
                   fontWeight:
                     match.status === "completed" && match.winner === "playerA" ? "700" : "600",
                 }}
@@ -193,20 +208,19 @@ export function MatchCard({ match }: MatchCardProps) {
             </View>
           </View>
 
-          {/* VS */}
-          <View style={{ width: 36, alignItems: "center" }}>
-            <Text style={{ fontSize: 14, fontWeight: "500", color: "#9CA3AF" }}>vs</Text>
+          <View style={{ width: 28, alignItems: "center" }}>
+            <Text style={{ fontSize: L.vs, fontWeight: "500", color: "#9CA3AF" }}>vs</Text>
           </View>
 
-          {/* Player B */}
           <View className="items-center flex-1">
             <View
               style={{
-                width: 76,
-                height: 76,
-                borderRadius: 38,
-                padding: 3,
-                borderWidth: match.status === "completed" && match.winner === "playerB" ? 2.5 : 0,
+                width: L.avatarRing,
+                height: L.avatarRing,
+                borderRadius: L.avatarRing / 2,
+                padding: 2,
+                borderWidth:
+                  match.status === "completed" && match.winner === "playerB" ? L.winnerRing : 0,
                 borderColor:
                   match.status === "completed" && match.winner === "playerB"
                     ? "#FFD700"
@@ -215,9 +229,9 @@ export function MatchCard({ match }: MatchCardProps) {
             >
               <View
                 style={{
-                  width: 70,
-                  height: 70,
-                  borderRadius: 35,
+                  width: L.avatar,
+                  height: L.avatar,
+                  borderRadius: L.avatar / 2,
                   overflow: "hidden",
                 }}
                 className="bg-muted"
@@ -242,20 +256,20 @@ export function MatchCard({ match }: MatchCardProps) {
                       : match.playerBUserId ?? `${match.id}:playerB`
                   }
                   fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
-                  size={70}
+                  size={L.avatarInner}
                   variant="plain"
                 />
               </View>
             </View>
-            <View className="flex-row items-center mt-3">
+            <View className="flex-row items-center mt-1.5">
               {match.status === "completed" && match.winner === "playerB" && (
-                <LucideIcon name="Trophy" size={14} color="#FFD700" style={{ marginRight: 4 }} />
+                <LucideIcon name="Trophy" size={12} color="#FFD700" style={{ marginRight: 3 }} />
               )}
               <Text
                 className="text-foreground text-center"
-                numberOfLines={2}
+                numberOfLines={1}
                 style={{
-                  fontSize: 18,
+                  fontSize: L.playerName,
                   fontWeight:
                     match.status === "completed" && match.winner === "playerB" ? "700" : "600",
                 }}
@@ -266,43 +280,14 @@ export function MatchCard({ match }: MatchCardProps) {
           </View>
         </View>
 
-        {/* Scheduled Info */}
-        {match.status === "scheduled" && (
-          <View className="mb-4">
-            <Text style={{ fontSize: 13, color: metaMuted }}>
-              Scheduled for {formatDate(match.matchDate)}
-            </Text>
-          </View>
-        )}
-
-        {/* Score Section */}
-        {(match.sets ?? []).length > 0 && match.status !== "scheduled" && (
-          <View className="mb-4">
-            <Text className="text-caption font-medium text-muted-foreground mb-3">Score</Text>
-            <View className="flex-row gap-2">
-              {(match.sets ?? []).map((set, index) => (
-                <View
-                  key={index}
-                  className="bg-muted/40 border border-border rounded-xl"
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
-                  }}
-                >
-                  <Text className="text-base text-foreground font-semibold">
-                    {set.playerAScore}-{set.playerBScore}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+        <MatchListCardScore match={match} />
         </Pressable>
 
         <OwnerMatchCardActions
           match={match}
           currentUserId={currentUser?.id}
           isOwnDashboardMatch
+          compact
         />
 
         {/* Opt-out API not shipped — avoid fake success (beta). */}
@@ -315,12 +300,14 @@ export function MatchCard({ match }: MatchCardProps) {
             accessibilityLabel="Open match details"
           >
             <View className="flex-row items-center flex-1">
-              <LucideIcon name="Calendar" size={14} color={metaMuted} />
-              <Text style={{ fontSize: 13, color: metaMuted, marginLeft: 6, marginRight: 12 }}>
+              <LucideIcon name="Calendar" size={12} color={metaMuted} />
+              <Text
+                style={{ fontSize: L.meta, color: metaMuted, marginLeft: 4, marginRight: 8 }}
+              >
                 {formatDate(match.matchDate)}
               </Text>
               {match.location ? (
-                <Text style={{ fontSize: 13, color: metaMuted, flex: 1 }} numberOfLines={1}>
+                <Text style={{ fontSize: L.meta, color: metaMuted, flex: 1 }} numberOfLines={1}>
                   {match.location}
                 </Text>
               ) : null}
@@ -340,3 +327,5 @@ export function MatchCard({ match }: MatchCardProps) {
     </View>
   );
 }
+
+export const MatchCard = memo(MatchCardComponent);

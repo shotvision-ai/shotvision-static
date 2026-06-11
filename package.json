@@ -1,6 +1,6 @@
 {
   "name": "Shot-Vision",
-  "version": "5.0.14",
+  "version": "5.0.15",
   "main": "index.js",
   "scripts": {
     "run": "expo run",
@@ -59,6 +59,7 @@
     "expo-apple-authentication": "~7.2.4",
     "expo-asset": "~11.1.7",
     "expo-auth-session": "~6.2.1",
+    "expo-calendar": "~14.1.4",
     "expo-constants": "~17.1.8",
     "expo-crypto": "~14.1.5",
     "expo-dev-client": "~5.2.4",

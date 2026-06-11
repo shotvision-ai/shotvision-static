@@ -5059,6 +5059,7 @@ __metadata:
     expo-apple-authentication: "npm:~7.2.4"
     expo-asset: "npm:~11.1.7"
     expo-auth-session: "npm:~6.2.1"
+    expo-calendar: "npm:~14.1.4"
     expo-constants: "npm:~17.1.8"
     expo-crypto: "npm:~14.1.5"
     expo-dev-client: "npm:~5.2.4"
@@ -7051,6 +7052,16 @@ __metadata:
     react: "*"
     react-native: "*"
   checksum: 10c0/345574436ee65f88191c7068a0d2943aad243c957e2fe7197cb7b06f15f9a617a70c150c2f60ff2148aa36df7d574243c28a1a91bf3e511b55bbf8687ebcf5fa
+  languageName: node
+  linkType: hard
+
+"expo-calendar@npm:~14.1.4":
+  version: 14.1.4
+  resolution: "expo-calendar@npm:14.1.4"
+  peerDependencies:
+    expo: "*"
+    react-native: "*"
+  checksum: 10c0/0bb38a73adcfc9994ac07ea7fefe0814a11568ad33da1d96f52de0de63e65dd9815b9545698fb200ad15bd6bb26fa2e84ba6e2b53b07dbec3e2d422d10f19e58
   languageName: node
   linkType: hard
 

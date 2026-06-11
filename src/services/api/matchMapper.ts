@@ -1,11 +1,13 @@
 import { Match, MatchParticipantGender, MatchSet, MatchStatus } from "../../../types/match";
 import { coalesceProfileImageUrl } from "../../utils/profileImageUrl";
+import { recordMatchSets } from "../../stores/matchSetsStore";
 import { AppError } from "./apiErrors";
 import { devLog } from "../../utils/devLog";
 
 function mapStatus(raw: unknown): MatchStatus {
   const s = String(raw ?? "").toUpperCase();
   if (s === "FINISHED" || s === "COMPLETED") return "completed";
+  if (s === "CANCELED" || s === "CANCELLED") return "cancelled";
   if (s === "SCHEDULED") return "scheduled";
   if (s === "IN_PROGRESS" || s === "LIVE") return "live";
   return "live";
@@ -46,15 +48,62 @@ function mapMatchImage(r: Record<string, unknown>, ...keys: string[]): string {
   return coalesceProfileImageUrl(...candidates) ?? "";
 }
 
+function mapSetRow(row: unknown): MatchSet | null {
+  if (row == null || typeof row !== "object") return null;
+  const x = row as Record<string, unknown>;
+  const aRaw =
+    x.playerAScore ??
+    x.score_a ??
+    x.scoreA ??
+    x.p1Score ??
+    x.player_a_score ??
+    x.player1Score;
+  const bRaw =
+    x.playerBScore ??
+    x.score_b ??
+    x.scoreB ??
+    x.p2Score ??
+    x.player_b_score ??
+    x.player2Score;
+  if (aRaw === undefined && bRaw === undefined) return null;
+  return {
+    playerAScore: Number(aRaw ?? 0),
+    playerBScore: Number(bRaw ?? 0),
+  };
+}
+
 function mapSets(raw: unknown): MatchSet[] {
+  if (raw == null) return [];
+  if (typeof raw === "string") {
+    try {
+      return mapSets(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
   if (!Array.isArray(raw)) return [];
-  return raw.map((row) => {
-    const x = row as Record<string, unknown>;
-    return {
-      playerAScore: Number(x.playerAScore ?? x.p1Score ?? x.player1Score ?? 0),
-      playerBScore: Number(x.playerBScore ?? x.p2Score ?? x.player2Score ?? 0),
-    };
-  });
+  const out: MatchSet[] = [];
+  for (const row of raw) {
+    const mapped = mapSetRow(row);
+    if (mapped) out.push(mapped);
+  }
+  return out;
+}
+
+function extractSetsFromRecord(r: Record<string, unknown>): MatchSet[] {
+  const sources = [
+    r.sets,
+    r.setScores,
+    r.matchSets,
+    r.set_scores,
+    r.scores,
+    r.score,
+  ];
+  for (const src of sources) {
+    const mapped = mapSets(src);
+    if (mapped.length > 0) return mapped;
+  }
+  return [];
 }
 
 /**
@@ -68,7 +117,10 @@ export function normalizeMatch(raw: unknown): Match {
 
   const id = String(r.id ?? r.matchId ?? "").trim();
 
-  const sets = mapSets(r.sets ?? r.setScores ?? r.matchSets);
+  const sets = extractSetsFromRecord(r);
+  if (sets.length > 0 && id) {
+    recordMatchSets(id, sets);
+  }
 
   const playerA = String(r.playerA ?? r.player1Name ?? r.player1 ?? "");
   const playerB = String(r.playerB ?? r.player2Name ?? r.player2 ?? "");
@@ -150,6 +202,12 @@ export function normalizeMatch(raw: unknown): Match {
     isPublic: Boolean(r.isPublic ?? r.is_public ?? r.public ?? false),
     sets,
     notes: typeof r.notes === "string" ? r.notes : undefined,
+    cancellationReason:
+      typeof r.cancellationReason === "string"
+        ? r.cancellationReason
+        : typeof r.cancellation_reason === "string"
+          ? r.cancellation_reason
+          : undefined,
     winner: r.winner !== undefined && r.winner !== null ? mapWinner(r.winner) : undefined,
     scheduledDate: typeof r.scheduledDate === "string" ? r.scheduledDate : undefined,
     likesCount:
@@ -172,13 +230,34 @@ export function normalizeExploreMatch(raw: unknown): Match {
 }
 
 /** Maps explore list items; skips invalid rows instead of failing the whole list. */
+function logMatchRowWithoutSetsOnce(raw: unknown, context: string): void {
+  if (!__DEV__ || raw == null || typeof raw !== "object") return;
+  const r = raw as Record<string, unknown>;
+  const status = String(r.status ?? "").toUpperCase();
+  if (
+    status !== "LIVE" &&
+    status !== "IN_PROGRESS" &&
+    status !== "FINISHED" &&
+    status !== "COMPLETED"
+  ) {
+    return;
+  }
+  devLog.info(`[match:mapper] ${context} row missing sets — see console`);
+  console.log("Match data:", JSON.stringify(r, null, 2));
+}
+
 export function normalizeExploreMatchList(raw: unknown[]): Match[] {
   const out: Match[] = [];
   let skippedInvalid = 0;
   let skippedMissingId = 0;
+  let loggedMissingSets = false;
   for (let i = 0; i < raw.length; i++) {
     try {
       const m = normalizeExploreMatch(raw[i]);
+      if (!loggedMissingSets && m.sets.length === 0 && (m.status === "live" || m.status === "completed")) {
+        logMatchRowWithoutSetsOnce(raw[i], "explore");
+        loggedMissingSets = true;
+      }
       if (!m.id.trim()) {
         skippedMissingId += 1;
         continue;
@@ -199,9 +278,14 @@ export function normalizeExploreMatchList(raw: unknown[]): Match[] {
 /** Maps list items; skips invalid rows instead of failing the whole list. */
 export function normalizeMatchList(raw: unknown[]): Match[] {
   const out: Match[] = [];
+  let loggedMissingSets = false;
   for (let i = 0; i < raw.length; i++) {
     try {
       let m = normalizeMatch(raw[i]);
+      if (!loggedMissingSets && m.sets.length === 0 && (m.status === "live" || m.status === "completed")) {
+        logMatchRowWithoutSetsOnce(raw[i], "my-matches");
+        loggedMissingSets = true;
+      }
       if (!m.id.trim()) {
         m = { ...m, id: `match-${i}` };
       }

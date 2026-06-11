@@ -21,7 +21,7 @@ import type {
 
 export type { PaginatedResponse };
 
-export type MatchStatusFilter = "live" | "scheduled" | "completed" | "all";
+export type MatchStatusFilter = "live" | "scheduled" | "completed" | "cancelled" | "all";
 
 export interface CreateMatchInput {
   playerA: string;
@@ -29,7 +29,7 @@ export interface CreateMatchInput {
   matchDate: string;
   location?: string;
   isPublic: boolean;
-  status: "live" | "scheduled" | "completed";
+  status: "live" | "scheduled" | "completed" | "cancelled";
   sets: { playerAScore: number; playerBScore: number }[];
   notes?: string;
 }
@@ -40,6 +40,7 @@ function toApiStatusFilter(status: MatchStatusFilter): MatchStatus | undefined {
   if (status === "all") return undefined;
   if (status === "scheduled") return "SCHEDULED";
   if (status === "completed") return "FINISHED";
+  if (status === "cancelled") return "CANCELED";
   return "LIVE";
 }
 
@@ -190,7 +191,22 @@ export const matchService = {
     return normalizeMatch(raw);
   },
 
-  async deleteMatch(id: string): Promise<void> {
+  /**
+   * Soft-delete a match (owner-only per API). Optional client guard mirrors backend ownership rules.
+   */
+  async deleteMatch(
+    id: string,
+    options?: { creatorId?: string; actorUserId?: string }
+  ): Promise<void> {
+    const creatorId = options?.creatorId?.trim();
+    const actorUserId = options?.actorUserId?.trim();
+    if (creatorId && actorUserId && creatorId !== actorUserId) {
+      throw new AppError(
+        "Only the match creator can delete this match.",
+        403,
+        "MATCH_DELETE_FORBIDDEN"
+      );
+    }
     await apiClient.delete<void>(`/api/matches/${id}`);
   },
 

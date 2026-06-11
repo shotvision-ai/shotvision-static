@@ -1,18 +1,26 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
-import { View, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from "react-native";
+import {
+  View,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  TouchableOpacity,
+  ListRenderItem,
+} from "react-native";
 import { ListErrorState, ListLoadingState } from "~/components/ui/AsyncListState";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "~/components/ui/text";
-import { PublicMatchCard } from "~/components/match/PublicMatchCard";
-import { SegmentedControl } from "~/components/ui/SegmentedControl";
+import { ExploreMatchCard } from "~/components/explore/ExploreMatchCard";
+import { MatchesListScreenHeader } from "~/components/match/MatchesListScreenHeader";
+import { ExploreFilterTabs } from "~/components/explore/ExploreFilterTabs";
 import LucideIcon from "~/lib/icons/LucideIcon";
-import { useTheme } from "~/theming/ThemeProvider";
+import { exploreColors, exploreFontFamily } from "~/lib/exploreDesign";
 import { useMatches } from "../../src/hooks/useMatches";
 import { MatchStatusFilter } from "../../src/services/api/matchService";
 import { useAuth } from "../../src/context/AuthContext";
 import { useMatchVisibilityStore } from "../../src/stores/matchVisibilityStore";
-import { useMatchLikeStore } from "../../src/stores/matchLikeStore";
+import { Match } from "~/types/match";
 
 function exploreFilterLabel(filter: MatchStatusFilter): string {
   switch (filter) {
@@ -22,23 +30,28 @@ function exploreFilterLabel(filter: MatchStatusFilter): string {
       return "finished";
     case "scheduled":
       return "scheduled";
+    case "cancelled":
+      return "cancelled";
     default:
       return "all";
   }
 }
 
+const renderExploreItem: ListRenderItem<Match> = ({ item }) => <ExploreMatchCard match={item} />;
+
+const keyExtractor = (item: Match) => item.id;
+
 export default function Explore() {
-  const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticating } = useAuth();
   const [quickFilter, setQuickFilter] = useState<MatchStatusFilter>("all");
 
-  const { matches, isLoading, isRefreshing, error, hasMore, refresh, loadMore } = useMatches({
+  const { matches, isLoading, isRefreshing, isLoadingMore, error, hasMore, refresh, loadMore } =
+    useMatches({
     type: "explore",
     status: quickFilter,
     enabled: !!user,
   });
-  const likeRevision = useMatchLikeStore((s) => s.revision);
 
   useFocusEffect(
     useCallback(() => {
@@ -48,8 +61,6 @@ export default function Explore() {
       if (!exploreStale && !myMatchesStale) return;
 
       void (async () => {
-        // My Matches changes (create public match, visibility toggle) require a fresh
-        // ownership sync + explore supplement — not just clearing the dashboard flag.
         const ok = await refresh();
         if (ok) {
           clearExploreStale();
@@ -61,31 +72,29 @@ export default function Explore() {
     }, [refresh])
   );
 
-  const renderHeader = () => (
-    <View className="pt-1 pb-5">
-      <SegmentedControl
-        options={[
-          { label: "All", value: "all" },
-          { label: "Live", value: "live" },
-          { label: "Finished", value: "completed" },
-          { label: "Scheduled", value: "scheduled" },
-        ]}
-        selectedValue={quickFilter}
-        onChange={(value) => setQuickFilter(value as MatchStatusFilter)}
-      />
-    </View>
+  const listHeader = useMemo(
+    () => (
+      <View style={{ marginHorizontal: -16, paddingBottom: 8 }}>
+        <MatchesListScreenHeader title="Explore" />
+        <ExploreFilterTabs selected={quickFilter} onChange={setQuickFilter} />
+      </View>
+    ),
+    [quickFilter]
   );
 
-  const renderEmptyState = () => {
-    const emptyContainerStyle = {
+  const emptyContainerStyle = useMemo(
+    () => ({
       flexGrow: 1,
-      minHeight: 360,
+      minHeight: 320,
       alignItems: "center" as const,
       justifyContent: "center" as const,
       paddingHorizontal: 32,
       paddingVertical: 48,
-    };
+    }),
+    []
+  );
 
+  const listEmpty = useMemo(() => {
     if (isLoading && !isRefreshing && matches.length === 0) {
       return (
         <ListLoadingState message="Loading public matches…" style={emptyContainerStyle} />
@@ -121,17 +130,42 @@ export default function Explore() {
     return (
       <View style={emptyContainerStyle}>
         <View
-          className="items-center justify-center rounded-full bg-primary/10 mb-2"
-          style={{ width: 80, height: 80 }}
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: 20,
+            backgroundColor: "#FFF0EC",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 8,
+          }}
         >
-          <LucideIcon name="Globe" size={40} color={theme.colors.primary} />
+          <LucideIcon name="Globe" size={36} color={exploreColors.coral} />
         </View>
-        <Text className="text-h3 font-semibold text-foreground mt-4 mb-2 text-center">
+        <Text
+          style={{
+            fontFamily: exploreFontFamily.bold,
+            fontSize: 18,
+            color: exploreColors.ink,
+            marginTop: 12,
+            marginBottom: 8,
+            textAlign: "center",
+          }}
+        >
           {isFiltered
             ? `No ${filterLabel} public matches`
             : "There are no public matches"}
         </Text>
-        <Text className="text-body text-muted-foreground text-center leading-6 max-w-[300px]">
+        <Text
+          style={{
+            fontFamily: exploreFontFamily.regular,
+            fontSize: 14,
+            color: exploreColors.muted,
+            textAlign: "center",
+            lineHeight: 20,
+            maxWidth: 280,
+          }}
+        >
           {isFiltered
             ? filteredEmptyWithMore
               ? "More matches may be on the next pages. Load more or switch to All."
@@ -139,53 +173,83 @@ export default function Explore() {
             : "When players share matches publicly, they'll appear here. Pull down to refresh."}
         </Text>
         {filteredEmptyWithMore ? (
-          <TouchableOpacity onPress={loadMore} className="bg-primary px-6 py-3 rounded-xl mt-6">
-            <Text className="text-primary-foreground font-semibold">Load more</Text>
+          <TouchableOpacity
+            onPress={loadMore}
+            style={{
+              backgroundColor: exploreColors.coral,
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              borderRadius: 14,
+              marginTop: 20,
+            }}
+          >
+            <Text style={{ fontFamily: exploreFontFamily.bold, fontSize: 14, color: "#FFFFFF" }}>
+              Load more
+            </Text>
           </TouchableOpacity>
-        ) : (
-          <Text className="text-caption text-muted-foreground/80 mt-5 text-center">
-            Pull down to refresh
-          </Text>
-        )}
+        ) : null}
       </View>
     );
-  };
+  }, [
+    isLoading,
+    isRefreshing,
+    matches.length,
+    error,
+    isAuthenticating,
+    refresh,
+    quickFilter,
+    hasMore,
+    loadMore,
+    emptyContainerStyle,
+  ]);
 
-  const renderFooter = () => {
-    if (!hasMore) return null;
+  const listFooter = useMemo(() => {
+    if (!isLoadingMore) return null;
     return (
-      <View className="py-6">
-        <ActivityIndicator color={theme.colors.primary} />
+      <View style={{ paddingVertical: 20 }}>
+        <ActivityIndicator color={exploreColors.coral} />
       </View>
     );
-  };
+  }, [isLoadingMore]);
+
+  const contentContainerStyle = useMemo(
+    () => ({
+      paddingHorizontal: 16,
+      paddingBottom: 24 + insets.bottom,
+      flexGrow: 1 as const,
+    }),
+    [insets.bottom]
+  );
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom", "left", "right"]}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: exploreColors.pageBg }}
+      edges={["top", "left", "right"]}
+    >
       <FlatList
         data={matches}
-        extraData={`${quickFilter}-${isRefreshing}-${matches.length}-${likeRevision}`}
-        renderItem={({ item }) => <PublicMatchCard match={item} />}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmptyState}
-        ListFooterComponent={renderFooter}
+        extraData={quickFilter}
+        renderItem={renderExploreItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        ListFooterComponent={listFooter}
         onEndReached={loadMore}
         onEndReachedThreshold={0.5}
+        initialNumToRender={5}
+        maxToRenderPerBatch={6}
+        windowSize={7}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={() => {
               void refresh();
             }}
-            tintColor={theme.colors.primary}
+            tintColor={exploreColors.coral}
           />
         }
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingBottom: 120 + insets.bottom,
-          flexGrow: 1,
-        }}
+        contentContainerStyle={contentContainerStyle}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>

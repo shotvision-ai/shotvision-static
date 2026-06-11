@@ -7,8 +7,11 @@ import { useMatchLikeStore } from "../../stores/matchLikeStore";
 import { useMatchVisibilityStore } from "../../stores/matchVisibilityStore";
 import { useMatchReportStore } from "../../stores/matchReportStore";
 import { useMatchOwnershipStore } from "../../stores/matchOwnershipStore";
+import { useMatchSetsStore } from "../../stores/matchSetsStore";
 import { resetMatchOwnershipSession } from "../../utils/matchOwnership";
 import { clearPendingEmailForLink } from "./emailLinkStorage";
+import { useMatchCalendarStore } from "../../stores/matchCalendarStore";
+import { clearMatchCalendarPersistence } from "../calendar/matchCalendarPersistence";
 
 const syncAccessToken = (token: string | null) => apiClient.setAccessToken(token);
 
@@ -26,7 +29,15 @@ export function resetAuthDomainStores(): void {
   useMatchVisibilityStore.getState().clearAll();
   useMatchReportStore.getState().clearAll();
   useMatchOwnershipStore.getState().clearAll();
+  useMatchSetsStore.getState().clearAll();
+  useMatchCalendarStore.getState().clearAll();
   resetMatchOwnershipSession();
+}
+
+export async function clearMatchCalendarForUser(userId: string | undefined): Promise<void> {
+  const uid = userId?.trim();
+  if (!uid) return;
+  await clearMatchCalendarPersistence(uid);
 }
 
 /** Firebase + Google identity providers — never throws (logout/delete must always clear JWT storage). */

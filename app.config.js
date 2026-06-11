@@ -94,6 +94,14 @@ if (googleSignInIosUrlScheme) {
   ]);
 }
 
+plugins.push([
+  "expo-calendar",
+  {
+    calendarPermission:
+      "Shot Vision needs calendar access to add your scheduled tennis matches. Events sync with Google Calendar through your device.",
+  },
+]);
+
 plugins.push(
   [
     "expo-router",
@@ -140,7 +148,7 @@ module.exports = {
   splash: {
     image: "./assets/images/splash-icon.png",
     resizeMode: "contain",
-    backgroundColor: "#ffffff",
+    backgroundColor: "#eff4f9",
   },
 
   assetBundlePatterns: ["**/*"],

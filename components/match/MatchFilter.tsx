@@ -23,6 +23,7 @@ export function MatchFilter({
     { value: "scheduled", label: "Scheduled", color: theme.colors.tertiary ?? "#2563eb" },
     { value: "live", label: "Live", color: theme.colors.warning ?? "#f97316" },
     { value: "completed", label: "Finished", color: theme.colors.success ?? "#2563eb" },
+    { value: "cancelled", label: "Cancelled", color: theme.colors.destructive ?? "#dc2626" },
   ];
 
   const toggleFilter = (status: MatchStatus) => {
@@ -38,7 +39,7 @@ export function MatchFilter({
   };
 
   const selectAll = () => {
-    onFilterChange(["scheduled", "live", "completed"]);
+    onFilterChange(["scheduled", "live", "completed", "cancelled"]);
   };
 
   return (
@@ -50,7 +51,7 @@ export function MatchFilter({
         <View
           className="rounded-3xl w-full max-w-md"
           style={{
-            backgroundColor: theme.colors.card || "#FFFFFF",
+            backgroundColor: theme.colors.card,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.15,
@@ -61,7 +62,7 @@ export function MatchFilter({
           {/* Header */}
           <View
             className="flex-row items-center justify-between p-5 border-b"
-            style={{ borderBottomColor: theme.colors.border || "#E8E8E8" }}
+            style={{ borderBottomColor: theme.colors.border }}
           >
             <Text className="text-h3 font-semibold text-foreground">Filter Matches</Text>
             <TouchableOpacity onPress={onClose} className="p-2">
@@ -80,13 +81,11 @@ export function MatchFilter({
                   className="flex-row items-center justify-between p-4 rounded-2xl border"
                   style={{
                     backgroundColor: isSelected
-                      ? theme.colors.primary
-                        ? `${theme.colors.primary}15`
-                        : "#F0F7FF"
-                      : theme.colors.background || "#FFFFFF",
-                    borderColor: isSelected
-                      ? theme.colors.primary || "#2563EB"
-                      : theme.colors.border || "#E8E8E8",
+                      ? theme.name === "dark"
+                        ? "rgba(96, 165, 250, 0.14)"
+                        : "rgba(37, 99, 235, 0.08)"
+                      : theme.colors.background,
+                    borderColor: isSelected ? theme.colors.primary : theme.colors.border,
                     shadowColor: "#000",
                     shadowOffset: { width: 0, height: 1 },
                     shadowOpacity: isSelected ? 0.05 : 0.02,
@@ -121,14 +120,14 @@ export function MatchFilter({
           {/* Action Buttons */}
           <View
             className="flex-row gap-3 p-5 border-t"
-            style={{ borderTopColor: theme.colors.border || "#E8E8E8" }}
+            style={{ borderTopColor: theme.colors.border }}
           >
             <TouchableOpacity
               onPress={clearAll}
               className="flex-1 py-3 px-4 rounded-xl border items-center"
               style={{
-                backgroundColor: theme.colors.background || "#F5F5F5",
-                borderColor: theme.colors.border || "#E8E8E8",
+                backgroundColor: theme.colors.muted,
+                borderColor: theme.colors.border,
               }}
             >
               <Text className="text-base font-medium text-foreground">Clear All</Text>
@@ -136,9 +135,12 @@ export function MatchFilter({
             <TouchableOpacity
               onPress={selectAll}
               className="flex-1 py-3 px-4 rounded-xl items-center"
-              style={{ backgroundColor: theme.colors.primary || "#2563EB" }}
+              style={{ backgroundColor: theme.colors.primary }}
             >
-              <Text className="text-base font-medium" style={{ color: "#FFFFFF" }}>
+              <Text
+                className="text-base font-medium"
+                style={{ color: theme.colors.primaryForeground }}
+              >
                 Select All
               </Text>
             </TouchableOpacity>

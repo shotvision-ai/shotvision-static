@@ -14,6 +14,7 @@ import {
   PolicySection,
   usePolicySurfaces,
 } from "~/components/layout/PolicyPrimitives";
+import { SUPPORT_EMAIL } from "~/src/constants/supportContact";
 
 export default function DataDeletion() {
   const insets = useSafeAreaInsets();
@@ -198,7 +199,7 @@ export default function DataDeletion() {
             >
               <LucideIcon name="Mail" size={18} color={BRAND_BLUE} />
               <Text style={{ fontSize: 15, fontWeight: "600", color: BRAND_BLUE }}>
-                support@shotvision.app
+                {SUPPORT_EMAIL}
               </Text>
             </PolicyPrimaryCallout>
           </PolicySection>

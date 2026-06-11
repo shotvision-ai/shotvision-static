@@ -15,6 +15,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
+import { supportMailto } from "~/src/constants/supportContact";
 
 export default function Feedback() {
   const insets = useSafeAreaInsets();
@@ -41,9 +42,7 @@ export default function Feedback() {
     const subject = `Shot Vision Feedback: ${feedbackTypes.find((t) => t.value === selectedType)?.label}`;
     const body = feedback;
 
-    Linking.openURL(
-      `mailto:feedback@shotvision.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
-    );
+    Linking.openURL(supportMailto({ subject, body }));
 
     Alert.alert("Thank You!", "Your feedback has been sent. We appreciate your input!", [
       {

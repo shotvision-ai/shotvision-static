@@ -1,35 +1,44 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useFocusEffect } from "expo-router";
-import { View, FlatList, ActivityIndicator, RefreshControl } from "react-native";
+import {
+  View,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  ListRenderItem,
+} from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "~/components/ui/text";
-import { MatchCard } from "~/components/match/MatchCard";
+import { MyMatchCard } from "~/components/myMatches/MyMatchCard";
 import { FloatingActionButton } from "~/components/ui/FloatingActionButton";
-import { SegmentedControl } from "~/components/ui/SegmentedControl";
-import { MatchStatus } from "~/types/match";
-import LucideIcon from "~/lib/icons/LucideIcon";
+import { MatchesListScreenHeader } from "~/components/match/MatchesListScreenHeader";
+import { ExploreFilterTabs } from "~/components/explore/ExploreFilterTabs";
+import { Match } from "~/types/match";
 import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
-import { useTheme } from "~/theming/ThemeProvider";
 import { useCurrentUserAvatarProps } from "../../src/hooks/useCurrentUserAvatar";
 import { useMatches } from "../../src/hooks/useMatches";
 import { MatchStatusFilter } from "../../src/services/api/matchService";
 import { useAuth } from "../../src/context/AuthContext";
-import { useMatchLikeStore } from "../../src/stores/matchLikeStore";
 import { useMatchVisibilityStore } from "../../src/stores/matchVisibilityStore";
 import { ListErrorState, ListLoadingState } from "~/components/ui/AsyncListState";
+import { exploreColors, exploreFontFamily } from "~/lib/exploreDesign";
+import LucideIcon from "~/lib/icons/LucideIcon";
+
+const renderMatchItem: ListRenderItem<Match> = ({ item }) => <MyMatchCard match={item} />;
+
+const keyExtractor = (item: Match) => item.id;
 
 export default function Dashboard() {
-  const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticating } = useAuth();
   const currentUserAvatar = useCurrentUserAvatarProps(user?.id);
   const [quickFilter, setQuickFilter] = useState<MatchStatusFilter>("all");
 
-  const { matches, isLoading, isRefreshing, error, hasMore, refresh, loadMore } = useMatches({
+  const { matches, isLoading, isRefreshing, isLoadingMore, error, hasMore, refresh, loadMore } =
+    useMatches({
     status: quickFilter,
     enabled: !!user,
   });
-  const likeRevision = useMatchLikeStore((s) => s.revision);
 
   useFocusEffect(
     useCallback(() => {
@@ -41,24 +50,31 @@ export default function Dashboard() {
     }, [refresh])
   );
 
-  const renderHeader = () => (
-    <View className="pt-1 pb-5">
-      <SegmentedControl
-        options={[
-          { label: "All", value: "all" },
-          { label: "Live", value: "live" },
-          { label: "Finished", value: "completed" },
-          { label: "Scheduled", value: "scheduled" },
-        ]}
-        selectedValue={quickFilter}
-        onChange={(value) => setQuickFilter(value as MatchStatusFilter)}
-      />
-    </View>
+  const listHeader = useMemo(
+    () => (
+      <View style={{ marginHorizontal: -16, paddingBottom: 8 }}>
+        <MatchesListScreenHeader title="My Matches" />
+        <ExploreFilterTabs selected={quickFilter} onChange={setQuickFilter} />
+      </View>
+    ),
+    [quickFilter]
   );
 
-  const renderEmptyState = () => {
+  const emptyContainerStyle = useMemo(
+    () => ({
+      flexGrow: 1,
+      minHeight: 320,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      paddingHorizontal: 32,
+      paddingVertical: 48,
+    }),
+    []
+  );
+
+  const listEmpty = useMemo(() => {
     if (isLoading && !isRefreshing && matches.length === 0) {
-      return <ListLoadingState message="Loading your matches…" />;
+      return <ListLoadingState message="Loading your matches…" style={emptyContainerStyle} />;
     }
 
     if (error && !isAuthenticating) {
@@ -67,67 +83,113 @@ export default function Dashboard() {
           title="Couldn't load your matches"
           message={error}
           onRetry={refresh}
+          style={emptyContainerStyle}
         />
       );
     }
 
     return (
-      <View className="flex-1 items-center justify-center px-8 py-20">
+      <View style={emptyContainerStyle}>
         <ProfileAvatar
           preferredAvatarId={currentUserAvatar.preferredAvatarId}
           fallbackUserId={currentUserAvatar.fallbackUserId}
           imageDisplayKey={currentUserAvatar.imageDisplayKey}
           profileImageCacheRevision={currentUserAvatar.profileImageCacheRevision}
-          size={88}
+          size={72}
         />
-        <Text className="text-h3 font-semibold text-foreground mt-6 mb-2 text-center">
+        <Text
+          style={{
+            fontFamily: exploreFontFamily.bold,
+            fontSize: 18,
+            color: exploreColors.ink,
+            marginTop: 16,
+            marginBottom: 8,
+            textAlign: "center",
+          }}
+        >
           No matches yet
         </Text>
-        <Text className="text-body text-muted-foreground text-center">
+        <Text
+          style={{
+            fontFamily: exploreFontFamily.regular,
+            fontSize: 14,
+            color: exploreColors.muted,
+            textAlign: "center",
+            lineHeight: 20,
+          }}
+        >
           {quickFilter === "all"
-            ? "Tap the + button below to create your first match"
+            ? "Tap + to create your first match"
             : `No ${quickFilter} matches found`}
         </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12, gap: 6 }}>
+          <LucideIcon name="Plus" size={14} color={exploreColors.coral} />
+          <Text style={{ fontFamily: exploreFontFamily.regular, fontSize: 12, color: exploreColors.muted }}>
+            Use the button below
+          </Text>
+        </View>
       </View>
     );
-  };
+  }, [
+    isLoading,
+    isRefreshing,
+    matches.length,
+    error,
+    isAuthenticating,
+    refresh,
+    quickFilter,
+    currentUserAvatar,
+    emptyContainerStyle,
+  ]);
 
-  const renderFooter = () => {
-    if (!hasMore) return null;
+  const listFooter = useMemo(() => {
+    if (!isLoadingMore) return null;
     return (
-      <View className="py-6">
-        <ActivityIndicator color={theme.colors.primary} />
+      <View style={{ paddingVertical: 20 }}>
+        <ActivityIndicator color={exploreColors.coral} />
       </View>
     );
-  };
+  }, [isLoadingMore]);
+
+  const contentContainerStyle = useMemo(
+    () => ({
+      paddingHorizontal: 16,
+      paddingBottom: 100 + insets.bottom,
+      flexGrow: 1 as const,
+    }),
+    [insets.bottom]
+  );
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={["bottom", "left", "right"]}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: exploreColors.pageBg }}
+      edges={["top", "left", "right"]}
+    >
       <FlatList
         data={matches}
-        extraData={`${quickFilter}-${isRefreshing}-${matches.length}-${likeRevision}`}
-        renderItem={({ item }) => <MatchCard match={item} />}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmptyState}
-        ListFooterComponent={renderFooter}
+        extraData={quickFilter}
+        renderItem={renderMatchItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        ListFooterComponent={listFooter}
         onEndReached={loadMore}
         onEndReachedThreshold={0.5}
+        initialNumToRender={6}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={refresh}
-            tintColor={theme.colors.primary}
+            tintColor={exploreColors.coral}
           />
         }
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingBottom: 120 + insets.bottom,
-          flexGrow: 1,
-        }}
+        contentContainerStyle={contentContainerStyle}
         showsVerticalScrollIndicator={false}
       />
-      <FloatingActionButton />
+      <FloatingActionButton bottomInset={insets.bottom} />
     </SafeAreaView>
   );
 }

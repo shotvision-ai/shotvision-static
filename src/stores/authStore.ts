@@ -8,6 +8,7 @@ import { logShotVisionUi } from "../services/api/apiDebug";
 import { devLog } from "../utils/devLog";
 import { hydrateMatchReportsForUser } from "../services/auth/hydrateMatchReports";
 import { useMatchLikeStore } from "./matchLikeStore";
+import { useMatchCalendarStore } from "./matchCalendarStore";
 import {
   isRetryableColdStartError,
   type AuthLoginAttemptListener,
@@ -91,7 +92,9 @@ async function hydrateEngagementForUser(userId: string): Promise<void> {
   await Promise.all([
     hydrateMatchReportsForUser(userId),
     useMatchLikeStore.getState().hydrateForUser(userId),
+    useMatchCalendarStore.getState().hydrateForUser(userId),
   ]);
+  void useMatchCalendarStore.getState().syncAll(userId);
 }
 
 async function loadProfileAfterAuthResilient(): Promise<UserProfile> {
@@ -296,9 +299,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     if (get().isLoggingOut) return;
+    const userId = get().user?.id;
     set({ isLoggingOut: true });
     try {
       await authService.logout();
+      if (userId) {
+        const { clearMatchCalendarForUser } = await import("../services/auth/clearAuthState");
+        await clearMatchCalendarForUser(userId);
+      }
       applySignedOutState(set, "logout");
     } catch (error) {
       devLog.error("[authStore] logout failed:", error);

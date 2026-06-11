@@ -35,6 +35,11 @@ export interface Theme {
     ring?: string;
     overlay?: string;
     notification?: string;
+    /** Tinted surface for live-match cards and badges (light: warm cream, dark: subtle orange). */
+    liveCardTint?: string;
+    /** Status badge backgrounds (semantic tints). */
+    scheduledBadgeBackground?: string;
+    finishedBadgeBackground?: string;
   };
   typography: {
     h1?: Typography;
