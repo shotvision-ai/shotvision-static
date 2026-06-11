@@ -1,30 +1,34 @@
 /**
- * Shot Vision — Central Color Palette
- *
- * Change these values to update the color theme app-wide.
- * Every screen and component should import colors from here
- * instead of using hardcoded hex strings.
+ * Shot Vision — semantic palette (hex for inline RN styles).
+ * Prefer theme tokens (`bg-background`, `useTheme`, `useAppTheming`) in new code.
  */
 export const Colors = {
   // ── Brand ──────────────────────────────────────────────
-  primary: "#2563eb", // Main blue (buttons, links, highlights)
-  primaryLight: "rgba(37,99,235,0.1)", // Tinted background for primary elements
-  primaryBorder: "rgba(37,99,235,0.25)", // Border using primary color
+  primary: "#2563eb",
+  primaryLight: "rgba(37,99,235,0.1)",
+  primaryBorder: "rgba(37,99,235,0.25)",
 
   // ── Semantic ───────────────────────────────────────────
-  success: "#22c55e", // Green (winner badges, completed actions)
-  warning: "#f59e0b", // Amber (live badges, notes)
-  danger: "#dc2626", // Red (delete actions, errors, reports)
+  success: "#22c55e",
+  warning: "#f59e0b",
+  danger: "#dc2626",
+
+  // ── Surfaces (aligned with theming/themes/light.ts) ────
+  /** App canvas — cool blue-gray, not pure white. */
+  canvas: "#eff4f9",
+  /** Elevated cards / sheets. */
+  surface: "#fafcfe",
+  /** Text/icons on primary buttons and filled chips. */
+  onPrimary: "#ffffff",
 
   // ── Neutrals ───────────────────────────────────────────
-  white: "#ffffff",
   black: "#1f2937",
   gray: {
-    50: "#f9fafb",
-    100: "#f3f4f6",
-    200: "#e5e7eb",
-    300: "#d1d5db",
-    400: "#9ca3af",
+    50: "#eff4f9",
+    100: "#e8eef5",
+    200: "#d5dee9",
+    300: "#b8c4d4",
+    400: "#8b98a8",
     500: "#6b7280",
     600: "#4b5563",
     700: "#374151",
@@ -32,8 +36,8 @@ export const Colors = {
   },
 
   // ── App-specific ───────────────────────────────────────
-  liveCard: "#FFF4E5", // Background for live match cards (light)
-  winnerGold: "#FFD700", // Trophy / winner highlight
+  liveCard: "#fff7ed",
+  winnerGold: "#FFD700",
 } as const;
 
 export type AppColors = typeof Colors;

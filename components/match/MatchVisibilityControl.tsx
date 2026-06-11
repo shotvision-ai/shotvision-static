@@ -6,13 +6,14 @@ import type { Match } from "~/types/match";
 import { useMatchVisibility } from "../../src/hooks/useMatchVisibility";
 import { useAppTheming } from "../../src/hooks/useAppTheming";
 import { STANDARD_HIT_SLOP } from "../../src/utils/touchA11y";
+import { exploreColors, exploreFontFamily } from "~/lib/exploreDesign";
 
 type MatchVisibilityControlProps = {
   match: Match;
   /** My Matches list — viewer is always the organizer. */
   isOwnDashboardMatch?: boolean;
   /** Compact chip for match cards; full row for match details. */
-  variant?: "chip" | "row";
+  variant?: "chip" | "row" | "listBadge";
   onVisibilityUpdated?: (isPublic: boolean) => void;
 };
 
@@ -29,6 +30,56 @@ export function MatchVisibilityControl({
   });
   const accent = brand.blue;
   const muted = colors.muted;
+
+  if (variant === "listBadge") {
+    const badgeStyle = {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: 5,
+      backgroundColor: exploreColors.badge.publicBg,
+      gap: 3,
+    };
+    const labelStyle = {
+      fontFamily: exploreFontFamily.extraBold,
+      fontSize: 9,
+      letterSpacing: 0.5,
+      color: exploreColors.badge.publicText,
+    };
+
+    const content = (
+      <>
+        <LucideIcon
+          name={isPublic ? "Globe" : "Lock"}
+          size={10}
+          color={exploreColors.badge.publicText}
+        />
+        <Text style={labelStyle}>{isPublic ? "PUBLIC" : "PRIVATE"}</Text>
+      </>
+    );
+
+    if (!canManage) {
+      return <View style={badgeStyle}>{content}</View>;
+    }
+
+    return (
+      <TouchableOpacity
+        onPress={() => requestToggle()}
+        disabled={isUpdating}
+        hitSlop={STANDARD_HIT_SLOP}
+        style={[badgeStyle, { opacity: isUpdating ? 0.6 : 1 }]}
+        accessibilityRole="button"
+        accessibilityLabel={isPublic ? "Make match private" : "Make match public"}
+      >
+        {isUpdating ? (
+          <ActivityIndicator size="small" color={exploreColors.badge.publicText} />
+        ) : (
+          content
+        )}
+      </TouchableOpacity>
+    );
+  }
 
   if (variant === "chip") {
     if (!canManage) {

@@ -84,6 +84,29 @@ export function resolveMatchEditOwnerOptions(
   return undefined;
 }
 
+/**
+ * Match delete is organizer-only. Requires a resolved creator id that matches the viewer
+ * (API field or ownership cache) — never inferred from dashboard list context alone.
+ */
+export function canDeleteMatch(
+  match: Pick<Match, "id" | "creatorId"> | null | undefined,
+  currentUserId: string | null | undefined
+): boolean {
+  if (!match || !currentUserId?.trim()) return false;
+  const resolved = resolveMatchLifecycleFields(match as Match);
+  const viewerId = currentUserId.trim();
+  const creatorId = resolved.creatorId?.trim();
+  if (creatorId && creatorId === viewerId) return true;
+  const matchId = resolved.id?.trim();
+  if (!matchId) return false;
+  const snap = getMatchOwnershipSnapshot(matchId);
+  return snap?.creatorId === viewerId;
+}
+
+export function matchDeleteBlockedMessage(): string {
+  return "Only the match creator can delete this match.";
+}
+
 export function isMatchOwner(
   match: Pick<Match, "creatorId"> & { id?: string },
   currentUserId: string | null | undefined,
@@ -112,6 +135,23 @@ export function isMatchEditableByCreator(
   if (resolved.status === "live" || resolved.status === "scheduled") return true;
   if (resolved.status === "completed") return isFinishedMatchWithinEditWindow(resolved);
   return false;
+}
+
+/** Match notes stay editable for the organizer regardless of the 48h finished-match window. */
+export function canEditMatchNotes(
+  match: Pick<Match, "id" | "status" | "creatorId"> | null | undefined,
+  currentUserId: string | null | undefined,
+  options?: MatchEditEligibilityOptions
+): boolean {
+  if (!match) return false;
+  const resolved = resolveMatchLifecycleFields(match as Match);
+  if (!isMatchOwner(resolved, currentUserId, options)) return false;
+  return (
+    resolved.status === "live" ||
+    resolved.status === "scheduled" ||
+    resolved.status === "completed" ||
+    resolved.status === "cancelled"
+  );
 }
 
 export function finishedMatchEditLockMessage(): string {

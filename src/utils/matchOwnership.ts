@@ -7,6 +7,7 @@ import {
   getMatchOwnershipSnapshot,
   useMatchOwnershipStore,
 } from "../stores/matchOwnershipStore";
+import { applyMatchSets } from "../stores/matchSetsStore";
 import { resolveMatchLifecycleFields } from "./matchEditEligibility";
 
 let ownershipSyncedForUserId: string | null = null;
@@ -148,7 +149,9 @@ export function enrichExploreMatches(
   items: Match[],
   viewerUserId: string | undefined
 ): Match[] {
-  const enriched = applyMatchOwnershipList(items).map(resolveMatchLifecycleFields);
+  const enriched = applyMatchOwnershipList(items).map((m) =>
+    resolveMatchLifecycleFields(applyMatchSets(m))
+  );
   if (!viewerUserId?.trim()) return enriched;
   return enriched;
 }
@@ -157,7 +160,7 @@ export function enrichExploreMatches(
  * Detail/edit flows: apply ownership cache so creator checks work when the API omits `creatorId`.
  */
 export function enrichMatchForViewer(match: Match, viewerUserId: string | undefined): Match {
-  let owned = resolveMatchLifecycleFields(applyMatchOwnership(match));
+  let owned = resolveMatchLifecycleFields(applyMatchSets(applyMatchOwnership(match)));
   const viewerId = viewerUserId?.trim();
   if (owned.creatorId?.trim() || !viewerId) return owned;
 

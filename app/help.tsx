@@ -16,6 +16,7 @@ import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
+import { SUPPORT_EMAIL, supportMailto } from "~/src/constants/supportContact";
 
 export default function Help() {
   const { theme } = useTheme();
@@ -30,9 +31,7 @@ export default function Help() {
       return;
     }
 
-    Linking.openURL(
-      `mailto:support@shotvision.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`,
-    );
+    Linking.openURL(supportMailto({ subject, body: message }));
 
     Alert.alert(
       "Email Sent",
@@ -60,8 +59,8 @@ export default function Help() {
     {
       icon: "Mail",
       label: "Email Support",
-      subtitle: "support@shotvision.app",
-      action: () => Linking.openURL("mailto:support@shotvision.app"),
+      subtitle: SUPPORT_EMAIL,
+      action: () => Linking.openURL(supportMailto()),
     },
   ];
 

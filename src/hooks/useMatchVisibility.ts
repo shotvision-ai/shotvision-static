@@ -14,6 +14,7 @@ import {
 import { formatMatchSaveError } from "../services/api/matchFormErrors";
 import type { MatchEditEligibilityOptions } from "../utils/matchEditEligibility";
 import { devLog } from "../utils/devLog";
+import { notifyParticipantsOfMatchUpdate } from "../services/notifications/matchUpdateNotifier";
 
 type UseMatchVisibilityOptions = MatchEditEligibilityOptions & {
   onVisibilityUpdated?: (isPublic: boolean) => void;
@@ -53,6 +54,12 @@ export function useMatchVisibility(match: Match, options: UseMatchVisibilityOpti
       onVisibilityUpdated?.(updated.isPublic);
       invalidateMyMatchesExploreCache();
       useMatchVisibilityStore.getState().markAllListsStale();
+      await notifyParticipantsOfMatchUpdate({
+        previousMatch: match,
+        nextMatch: updated,
+        actorUserId: user?.id,
+        reason: "match_visibility_changed",
+      });
       if (__DEV__) {
         devLog.info("[visibility] persisted", {
           matchId: match.id,

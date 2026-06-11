@@ -1,98 +1,84 @@
 import { Tabs, useRouter } from "expo-router";
-import { TouchableOpacity, View } from "react-native";
+import { TouchableOpacity } from "react-native";
 import LucideIcon from "~/lib/icons/LucideIcon";
-import { useTheme } from "~/theming/ThemeProvider";
+import { MatchListViewerProvider } from "~/src/context/MatchListViewerContext";
+import { ShotVisionTabBar } from "~/components/navigation/ShotVisionTabBar";
+import { exploreColors, exploreFontFamily } from "~/lib/exploreDesign";
 import { HEADER_ICON_HIT_SLOP } from "~/src/utils/touchA11y";
-export default function TabsLayout() {
-  const { theme } = useTheme();
-  const router = useRouter();
+import { useTheme } from "~/theming/ThemeProvider";
 
-  const NotificationButton = () => (
+function NotificationHeaderButton() {
+  const router = useRouter();
+  const { theme } = useTheme();
+
+  return (
     <TouchableOpacity
       onPress={() => router.push("/notifications")}
       hitSlop={HEADER_ICON_HIT_SLOP}
-      style={{ paddingRight: 4, minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
       accessibilityRole="button"
       accessibilityLabel="Notifications"
-    >
-      <LucideIcon name="Bell" size={22} color={theme.colors.foreground} />
-    </TouchableOpacity>
-  );
-
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: "#6366f1", // Indigo/purple for active
-        tabBarInactiveTintColor: theme.colors.mutedForeground, // Use theme color
-        tabBarStyle: {
-          backgroundColor: theme.colors.card,
-          borderTopColor: theme.colors.border,
-          borderTopWidth: 1,
-          paddingTop: 12,
-          paddingBottom: 12,
-          height: 80,
-          elevation: 0,
-          shadowOpacity: 0,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "500",
-          fontFamily: theme.typography.caption?.fontFamily || "DMSans_500Medium",
-          marginTop: 4,
-          marginBottom: 0,
-        },
-        tabBarIconStyle: {
-          marginBottom: 0,
-          marginTop: 0,
-        },
-        headerStyle: {
-          backgroundColor: theme.colors.background,
-          elevation: 0,
-          shadowOpacity: 0,
-          borderBottomWidth: 0,
-        },
-        headerStatusBarHeight: undefined,
-        headerTitleStyle: {
-          fontFamily: theme.typography.h2?.fontFamily || "DMSans_700Bold",
-          fontSize: 24,
-          color: theme.colors.foreground,
-        },
-        headerTitleAlign: "center",
-        headerLeftContainerStyle: {
-          paddingLeft: 16,
-        },
-        headerRightContainerStyle: {
-          paddingRight: 16,
-        },
+      style={{
+        marginRight: 12,
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: exploreColors.cardBg,
+        borderWidth: 1,
+        borderColor: exploreColors.cardBorder,
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: "Explore Matches",
-          tabBarLabel: "Explore",
-          tabBarIcon: ({ color }) => <LucideIcon name="Users" size={24} color={color} />,
-          headerRight: () => <NotificationButton />,
+      <LucideIcon name="Bell" size={20} color={theme.colors.foreground ?? exploreColors.ink} />
+    </TouchableOpacity>
+  );
+}
+
+export default function TabsLayout() {
+  const { theme } = useTheme();
+
+  return (
+    <MatchListViewerProvider>
+      <Tabs
+        tabBar={(props) => <ShotVisionTabBar {...props} />}
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: theme.colors.background,
+            elevation: 0,
+            shadowOpacity: 0,
+            borderBottomWidth: 0,
+          },
+          headerTitleStyle: {
+            fontFamily: exploreFontFamily.black,
+            fontSize: 24,
+            color: theme.colors.foreground,
+          },
+          headerTitleAlign: "left",
+          headerShadowVisible: false,
         }}
-      />
-      <Tabs.Screen
-        name="dashboard"
-        options={{
-          title: "My Matches",
-          tabBarLabel: "My Matches",
-          tabBarIcon: ({ color }) => <LucideIcon name="Trophy" size={24} color={color} />,
-          headerRight: () => <NotificationButton />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarLabel: "Profile",
-          tabBarIcon: ({ color }) => <LucideIcon name="User" size={24} color={color} />,
-          headerRight: () => <NotificationButton />,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="explore"
+          options={{
+            headerShown: false,
+            title: "Explore",
+          }}
+        />
+        <Tabs.Screen
+          name="dashboard"
+          options={{
+            headerShown: false,
+            title: "My Matches",
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: "Profile",
+            headerRight: () => <NotificationHeaderButton />,
+          }}
+        />
+      </Tabs>
+    </MatchListViewerProvider>
   );
 }

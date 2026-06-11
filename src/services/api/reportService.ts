@@ -23,6 +23,9 @@ export const reportService = {
 
     const payload: Record<string, string> = { reason };
     const notes = body.notes?.trim();
+    if (notes && notes.length > 500) {
+      throw new AppError("Report notes must be 500 characters or fewer.", 400, "VALIDATION_ERROR");
+    }
     if (notes) payload.notes = notes;
 
     const raw = await apiClient.post<unknown>(`/api/matches/${id}/report`, payload);

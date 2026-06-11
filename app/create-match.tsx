@@ -7,21 +7,17 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
-import { useTheme } from "~/theming/ThemeProvider";
-import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import { Textarea } from "~/components/ui/textarea";
-import { Button } from "~/components/ui/button";
 import { Switch } from "~/components/ui/switch";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { MatchSet } from "~/types/match";
 import { CalendarPicker } from "~/components/ui/CalendarPicker";
 import { TimePicker } from "~/components/ui/TimePicker";
-import { matchService, CreateMatchInput } from "../src/services/api/matchService";
+import { matchService } from "../src/services/api/matchService";
 import { formatMatchSaveError } from "../src/services/api/matchFormErrors";
 import { AppError } from "../src/services/api/apiErrors";
 import { devLog } from "../src/utils/devLog";
@@ -43,61 +39,108 @@ import {
   setsForMatchWrite,
 } from "../src/utils/matchSetsPayload";
 import { combineMatchDateAndTime } from "../src/utils/matchDateTime";
+import { scheduleMatchCalendarSync } from "../src/services/calendar/matchCalendarSync";
+import { recordMatchSets } from "../src/stores/matchSetsStore";
+import { CreateMatchHeader } from "~/components/createMatch/CreateMatchHeader";
+import { CreateMatchPlayersCard } from "~/components/createMatch/CreateMatchPlayersCard";
+import { CreateMatchScoreEditor } from "~/components/createMatch/CreateMatchScoreEditor";
+import {
+  createMatch,
+  fieldLabelStyle,
+  sectionTitleStyle,
+  inputStyle,
+} from "~/components/createMatch/createMatchStyles";
+import { STANDARD_HIT_SLOP } from "~/src/utils/touchA11y";
 
-const BLUE = "#2563eb";
-const PURPLE = "#7c3aed";
+function currentDeviceTimeHHmm(): string {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function SectionTitle({ children }: { children: string }) {
+  return <Text style={sectionTitleStyle}>{children}</Text>;
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return <Text style={fieldLabelStyle}>{children}</Text>;
+}
+
+function PickerField({
+  label,
+  value,
+  icon,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  icon: "Calendar" | "Clock";
+  onPress: () => void;
+}) {
+  return (
+    <View>
+      <FieldLabel>{label}</FieldLabel>
+      <TouchableOpacity
+        onPress={onPress}
+        hitSlop={STANDARD_HIT_SLOP}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          backgroundColor: createMatch.cardBg,
+          borderWidth: 1,
+          borderColor: createMatch.cardBorder,
+          borderRadius: 12,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+        }}
+      >
+        <Text
+          style={{
+            fontFamily: createMatch.fonts.regular,
+            fontSize: 15,
+            color: createMatch.ink,
+          }}
+        >
+          {value}
+        </Text>
+        <LucideIcon name={icon} size={18} color={createMatch.muted} />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function CreateMatch() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
-  const isDark = theme.name === "dark";
-  const cardBg = theme.colors.card ?? theme.colors.background;
-  const mutedBg = theme.colors.muted ?? (isDark ? "hsl(240 3.7% 15.9%)" : "#f9fafb");
-  const borderColor = theme.colors.border ?? (isDark ? "hsl(240 3.7% 20%)" : "rgba(0,0,0,0.07)");
-  const iconMuted = theme.colors.mutedForeground ?? "#9ca3af";
-  const scoreTextColor = theme.colors.foreground ?? (isDark ? "#f9fafb" : "#1f2937");
-  const playersCardBg = isDark ? "rgba(37, 99, 235, 0.12)" : "rgba(37, 99, 235, 0.04)";
-  const playersCardBorder = isDark ? "rgba(37, 99, 235, 0.28)" : "rgba(37, 99, 235, 0.15)";
-  const dividerLine = isDark ? "rgba(37, 99, 235, 0.28)" : "rgba(37, 99, 235, 0.15)";
   const { user } = useAuth();
   const [playerA, setPlayerA] = useState("");
   const [playerB, setPlayerB] = useState("");
   const [matchDate, setMatchDate] = useState(new Date());
-  const [matchTime, setMatchTime] = useState("14:00");
+  const [matchTime, setMatchTime] = useState(() => currentDeviceTimeHHmm());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [location, setLocation] = useState("");
+  const [locationFocused, setLocationFocused] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
   const [sets, setSets] = useState<MatchSet[]>(DEFAULT_LIVE_MATCH_SETS);
   const [notes, setNotes] = useState("");
+  const [notesFocused, setNotesFocused] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
-  const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const formatDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
 
   const getMaxDate = () => (isScheduled ? undefined : new Date());
   const getMinDate = () => (isScheduled ? new Date() : undefined);
-
-  const addSet = () => {
-    if (sets.length < 5) setSets([...sets, { playerAScore: 0, playerBScore: 0 }]);
-  };
-
-  const updateSet = (index: number, field: "playerAScore" | "playerBScore", value: string) => {
-    const newSets = [...sets];
-    newSets[index][field] = parseInt(value) || 0;
-    setSets(newSets);
-  };
-
-  const removeSet = (index: number) => {
-    if (sets.length > 1) setSets(sets.filter((_, i) => i !== index));
-  };
 
   const canComplete = canCompleteMatchWithScores(playerA, playerB, sets);
 
@@ -158,8 +201,6 @@ export default function CreateMatch() {
           sets: setsForMatchWrite(sets, "live"),
         };
         const initial = await matchService.createMatch(liveInput);
-        // Use the authoritative post-finish details returned by completeMatch so that
-        // isPublic and creatorId reflect what the backend actually stored.
         created = await matchService.completeMatch(initial.id, liveInput);
       } else {
         created = await matchService.createMatch(input);
@@ -184,13 +225,15 @@ export default function CreateMatch() {
         isPublic: resolvedPublic,
         ...(ownerId ? { creatorId: ownerId } : {}),
       };
+      recordMatchSets(created.id, createdForCache.sets);
       seedMatchVisibilityFromMatch(createdForCache);
       invalidateMyMatchesExploreCache();
       if (resolvedPublic && user?.id) {
         seedMyMatchesExploreCacheItem(user.id, createdForCache);
       }
       useMatchVisibilityStore.getState().markAllListsStale();
-      router.replace("/(tabs)/dashboard");
+      scheduleMatchCalendarSync(createdForCache, ownerId);
+      router.replace(resolvedPublic ? "/(tabs)/explore" : "/(tabs)/dashboard");
     } catch (error: unknown) {
       if (__DEV__) {
         const summary =
@@ -221,61 +264,15 @@ export default function CreateMatch() {
     );
   };
 
+  const footerPad = Math.max(insets.bottom, 16) + 72;
+  const primaryLabel = isScheduled ? "Save as Scheduled" : "Save as Live";
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        {/* Same shell as Edit Match: JS header reserves top inset; KAV gets remaining height */}
-        <View
-          style={{
-            paddingTop: insets.top,
-            paddingLeft: insets.left,
-            paddingRight: insets.right,
-            backgroundColor: theme.colors.background,
-          }}
-        >
-          <View
-            style={{
-              height: 56,
-              flexDirection: "row",
-              alignItems: "center",
-              paddingHorizontal: 4,
-            }}
-          >
-            <TouchableOpacity
-              onPress={() => router.back()}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              style={{
-                padding: 8,
-                marginLeft: 4,
-                minWidth: 44,
-                minHeight: 44,
-                justifyContent: "center",
-              }}
-            >
-              <LucideIcon name="ChevronLeft" size={26} color={theme.colors.foreground} />
-            </TouchableOpacity>
-
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <Text
-                style={{
-                  fontSize: 18,
-                  fontWeight: "600",
-                  fontFamily: theme.typography.h2?.fontFamily,
-                  color: theme.colors.foreground,
-                }}
-                numberOfLines={1}
-              >
-                Create Match
-              </Text>
-            </View>
-
-            <View style={{ width: 44 }} />
-          </View>
-        </View>
+      <View style={{ flex: 1, backgroundColor: createMatch.pageBg }}>
+        <CreateMatchHeader topInset={insets.top} onBack={() => router.back()} />
 
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -285,492 +282,251 @@ export default function CreateMatch() {
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{
-              paddingHorizontal: 20,
-              paddingTop: 8,
-              paddingBottom: Math.max(insets.bottom, 24) + 16,
+              paddingHorizontal: 16,
+              paddingTop: 4,
+              paddingBottom: footerPad,
             }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
           >
-        {/* Section 1: Players */}
-        <View className="mb-8">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Players</Text>
-          {/* Players visual card */}
-          <View
-            style={{
-              backgroundColor: playersCardBg,
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: playersCardBorder,
-              padding: 16,
-            }}
-          >
-            {/* Player A */}
-            <View className="mb-3">
-              <View className="flex-row items-center gap-2 mb-2">
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: playerA ? BLUE : mutedBg,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {playerA ? (
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#ffffff" }}>
-                      {playerA.charAt(0).toUpperCase()}
-                    </Text>
-                  ) : (
-                    <LucideIcon name="User" size={16} color={iconMuted} />
-                  )}
-                </View>
-                <Text className="text-body font-semibold text-foreground">Player A</Text>
-              </View>
-              <Input
-                placeholder="Enter player name"
-                value={playerA}
-                onChangeText={setPlayerA}
-                className="rounded-xl"
-                style={{
-                  borderColor: playerA ? BLUE : undefined,
-                  borderWidth: 1.5,
-                }}
+            <SectionTitle>Players</SectionTitle>
+            <View style={{ marginBottom: 24 }}>
+              <CreateMatchPlayersCard
+                playerA={playerA}
+                playerB={playerB}
+                onChangeA={setPlayerA}
+                onChangeB={setPlayerB}
               />
             </View>
 
-            {/* VS divider */}
-            <View className="flex-row items-center gap-3 my-2">
-              <View style={{ flex: 1, height: 1, backgroundColor: dividerLine }} />
+            <SectionTitle>Match Details</SectionTitle>
+            <View style={{ gap: 14, marginBottom: 24 }}>
+              <PickerField
+                label="Match Date"
+                value={formatDate(matchDate)}
+                icon="Calendar"
+                onPress={() => setShowDatePicker(true)}
+              />
+              <PickerField
+                label="Match Time"
+                value={matchTime}
+                icon="Clock"
+                onPress={() => setShowTimePicker(true)}
+              />
+              <View>
+                <FieldLabel>Location (Optional)</FieldLabel>
+                <TextInput
+                  value={location}
+                  onChangeText={setLocation}
+                  placeholder="e.g., Golden Gate Park Courts"
+                  placeholderTextColor={createMatch.placeholder}
+                  onFocus={() => setLocationFocused(true)}
+                  onBlur={() => setLocationFocused(false)}
+                  style={inputStyle(locationFocused)}
+                  accessibilityLabel="Match location"
+                />
+              </View>
+
               <View
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: BLUE,
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center",
+                  justifyContent: "space-between",
+                  paddingVertical: 4,
                 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: "800", color: "#ffffff" }}>VS</Text>
-              </View>
-              <View style={{ flex: 1, height: 1, backgroundColor: dividerLine }} />
-            </View>
-
-            {/* Player B */}
-            <View className="mt-3">
-              <View className="flex-row items-center gap-2 mb-2">
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: playerB ? PURPLE : mutedBg,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {playerB ? (
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#ffffff" }}>
-                      {playerB.charAt(0).toUpperCase()}
-                    </Text>
-                  ) : (
-                    <LucideIcon name="User" size={16} color={iconMuted} />
-                  )}
-                </View>
-                <Text className="text-body font-semibold text-foreground">Player B</Text>
-              </View>
-              <Input
-                placeholder="Enter player name"
-                value={playerB}
-                onChangeText={setPlayerB}
-                className="rounded-xl"
-                style={{
-                  borderColor: playerB ? "#7c3aed" : undefined,
-                  borderWidth: 1.5,
-                }}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* Section 2: Match Details */}
-        <View className="mb-8">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Match Details</Text>
-          <View className="gap-4">
-            <View>
-              <Label nativeID="matchDate" className="mb-2">
-                Match Date
-              </Label>
-              <TouchableOpacity
-                onPress={() => setShowDatePicker(true)}
-                className="flex-row items-center justify-between bg-background border border-input rounded-xl px-4 py-3"
-              >
-                <Text className="text-body text-foreground">{formatDate(matchDate)}</Text>
-                <LucideIcon name="Calendar" size={20} color={iconMuted} />
-              </TouchableOpacity>
-            </View>
-            <View>
-              <Label nativeID="matchTime" className="mb-2">
-                Match Time
-              </Label>
-              <TouchableOpacity
-                onPress={() => setShowTimePicker(true)}
-                className="flex-row items-center justify-between bg-background border border-input rounded-xl px-4 py-3"
-              >
-                <Text className="text-body text-foreground">{matchTime}</Text>
-                <LucideIcon name="Clock" size={20} color={iconMuted} />
-              </TouchableOpacity>
-            </View>
-            <View>
-              <Label nativeID="location" className="mb-2">
-                Location (Optional)
-              </Label>
-              <Input
-                placeholder="e.g., Golden Gate Park Courts"
-                value={location}
-                onChangeText={setLocation}
-                aria-labelledby="location"
-              />
-            </View>
-            <View className="flex-row items-center justify-between py-2">
-              <View>
-                <Text className="text-body font-medium text-foreground">Scheduled</Text>
-                <Text className="text-caption text-muted-foreground mt-0.5">
-                  Mark as scheduled for later
-                </Text>
-              </View>
-              <Switch checked={isScheduled} onCheckedChange={handleScheduledToggle} />
-            </View>
-          </View>
-        </View>
-
-        {/* Section 3: Score */}
-        {!isScheduled && (
-          <View className="mb-8">
-            <Text className="text-h3 font-semibold text-foreground mb-4">Score</Text>
-            {/* Player name headers */}
-            {playerA && playerB && (
-              <View className="flex-row items-center justify-center gap-3 mb-3">
-                <View style={{ flex: 1, alignItems: "center" }}>
-                  <View
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text
                     style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 8,
-                      backgroundColor: isDark
-                        ? "rgba(37, 99, 235, 0.2)"
-                        : "rgba(37, 99, 235, 0.1)",
-                      maxWidth: 120,
+                      fontFamily: createMatch.fonts.bold,
+                      fontSize: 15,
+                      color: createMatch.ink,
                     }}
                   >
-                    <Text
-                      numberOfLines={1}
-                      style={{ fontSize: 12, fontWeight: "600", color: BLUE, textAlign: "center" }}
-                    >
-                      {playerA}
-                    </Text>
-                  </View>
-                </View>
-                <View style={{ width: 28 }} />
-                <View style={{ flex: 1, alignItems: "center" }}>
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 8,
-                      backgroundColor: isDark ? "rgba(124, 58, 237, 0.2)" : "rgba(124, 58, 237, 0.1)",
-                      maxWidth: 120,
-                    }}
-                  >
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        fontSize: 12,
-                        fontWeight: "600",
-                        color: PURPLE,
-                        textAlign: "center",
-                      }}
-                    >
-                      {playerB}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            )}
-            <View className="gap-2">
-              {sets.map((set, index) => (
-                <View
-                  key={index}
-                  style={{
-                    backgroundColor: cardBg,
-                    borderRadius: 14,
-                    borderWidth: 1.5,
-                    borderColor,
-                    paddingVertical: 10,
-                    paddingHorizontal: 14,
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: isDark ? 0.2 : 0.05,
-                    shadowRadius: 4,
-                    elevation: 1,
-                  }}
-                >
-                  <View className="flex-row items-center">
-                    {/* Set label */}
-                    <View
-                      style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 3,
-                        borderRadius: 6,
-                        backgroundColor: "rgba(37, 99, 235, 0.08)",
-                        marginRight: 12,
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: BLUE }}>
-                        S{index + 1}
-                      </Text>
-                    </View>
-
-                    {/* Score inputs */}
-                    <View className="flex-row items-center flex-1 justify-center gap-3">
-                      {/* Player A score */}
-                      <View
-                        style={{
-                          width: 54,
-                          height: 44,
-                          borderRadius: 10,
-                          backgroundColor:
-                            set.playerAScore > set.playerBScore
-                              ? isDark
-                                ? "rgba(37, 99, 235, 0.2)"
-                                : "rgba(37, 99, 235, 0.08)"
-                              : mutedBg,
-                          borderWidth: 1.5,
-                          borderColor:
-                            set.playerAScore > set.playerBScore ? BLUE : borderColor,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Input
-                          placeholder="0"
-                          placeholderTextColor={iconMuted}
-                          value={set.playerAScore === 0 ? "" : set.playerAScore.toString()}
-                          onChangeText={(value) => updateSet(index, "playerAScore", value)}
-                          keyboardType="numeric"
-                          className="border-0 bg-transparent p-0 text-center"
-                          style={{
-                            fontSize: 20,
-                            fontWeight: "700",
-                            textAlign: "center",
-                            width: 50,
-                            color: scoreTextColor,
-                          }}
-                        />
-                      </View>
-
-                      <Text style={{ fontSize: 16, fontWeight: "600", color: iconMuted }}>–</Text>
-
-                      {/* Player B score */}
-                      <View
-                        style={{
-                          width: 54,
-                          height: 44,
-                          borderRadius: 10,
-                          backgroundColor:
-                            set.playerBScore > set.playerAScore
-                              ? isDark
-                                ? "rgba(124, 58, 237, 0.2)"
-                                : "rgba(124, 58, 237, 0.08)"
-                              : mutedBg,
-                          borderWidth: 1.5,
-                          borderColor:
-                            set.playerBScore > set.playerAScore ? PURPLE : borderColor,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Input
-                          placeholder="0"
-                          placeholderTextColor={iconMuted}
-                          value={set.playerBScore === 0 ? "" : set.playerBScore.toString()}
-                          onChangeText={(value) => updateSet(index, "playerBScore", value)}
-                          keyboardType="numeric"
-                          className="border-0 bg-transparent p-0 text-center"
-                          style={{
-                            fontSize: 20,
-                            fontWeight: "700",
-                            textAlign: "center",
-                            width: 50,
-                            color: scoreTextColor,
-                          }}
-                        />
-                      </View>
-                    </View>
-
-                    {/* Remove button */}
-                    {sets.length > 1 && (
-                      <TouchableOpacity
-                        onPress={() => removeSet(index)}
-                        style={{
-                          marginLeft: 8,
-                          width: 28,
-                          height: 28,
-                          borderRadius: 14,
-                          backgroundColor: "rgba(220, 38, 38, 0.08)",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <LucideIcon name="X" size={14} color="#dc2626" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              ))}
-
-              {sets.length < 5 && (
-                <TouchableOpacity
-                  onPress={addSet}
-                  className="border border-dashed border-border/60 rounded-xl p-3 flex-row items-center justify-center mt-1"
-                >
-                  <LucideIcon name="Plus" size={18} color={BLUE} />
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: BLUE, marginLeft: 6 }}>
-                    Add Set
+                    Scheduled
                   </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* Section 4: Notes */}
-        <View className="mb-8">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Notes</Text>
-          <Textarea
-            placeholder="Add match notes"
-            value={notes}
-            onChangeText={setNotes}
-            numberOfLines={4}
-            className="min-h-[100px]"
-          />
-        </View>
-
-        {/* Section 5: Privacy — scrolls with form */}
-        <View className="mb-8">
-          <Text className="text-h3 font-semibold text-foreground mb-4">Privacy</Text>
-          <View className="flex-row items-center justify-between py-2">
-            <View className="flex-1 mr-4">
-              <View className="flex-row items-center gap-2">
-                <Text className="text-body font-medium text-foreground">Public</Text>
-                <TouchableOpacity
-                  onPress={() => setShowInfoTooltip(!showInfoTooltip)}
-                  className="p-1"
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Public match info"
-                >
-                  <LucideIcon name="Info" size={16} color={iconMuted} />
-                </TouchableOpacity>
+                  <Text
+                    style={{
+                      fontFamily: createMatch.fonts.regular,
+                      fontSize: 13,
+                      color: createMatch.muted,
+                      marginTop: 2,
+                    }}
+                  >
+                    Mark as scheduled for later
+                  </Text>
+                </View>
+                <Switch checked={isScheduled} onCheckedChange={handleScheduledToggle} />
               </View>
-              <Text className="text-caption text-muted-foreground mt-0.5">
-                Public matches appear in Explore
-              </Text>
-              {showInfoTooltip ? (
-                <Text className="text-caption text-muted-foreground mt-2 leading-5">
-                  Other players can find and like your match in Explore. Private matches stay on My
-                  Matches only.
-                </Text>
-              ) : null}
             </View>
-            <Switch checked={isPublic} onCheckedChange={setIsPublic} />
-          </View>
-        </View>
 
-        {/* Actions — scroll with form; safe-area padding on ScrollView content */}
-        <View className="mt-2 pt-6 border-t border-border">
-          {playerA && playerB ? (
-            <View className="mb-4 pb-4 border-b border-border/40">
-              <Text className="text-caption text-muted-foreground/70 mb-0.5">Match Preview</Text>
-              <Text className="text-body font-semibold text-foreground">
-                {playerA} vs {playerB}
-              </Text>
-            </View>
-          ) : null}
-          <View className="gap-3">
-            {isScheduled ? (
-              <Button
-                onPress={handleLive}
-                size="lg"
-                style={{ backgroundColor: BLUE }}
-                disabled={isSubmitting}
-                accessibilityLabel="Save as scheduled match"
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text className="text-button text-white">Save as Scheduled</Text>
-                )}
-              </Button>
-            ) : (
+            {!isScheduled ? (
               <>
-                <Button
-                  onPress={handleLive}
-                  size="lg"
-                  style={{ backgroundColor: BLUE }}
-                  disabled={isSubmitting}
-                  accessibilityLabel="Save as live match"
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="white" />
-                  ) : (
-                    <Text className="text-button text-white">Save as Live</Text>
-                  )}
-                </Button>
-                <Button
-                  onPress={handleComplete}
-                  size="lg"
-                  variant="outline"
-                  disabled={!canComplete || isSubmitting}
-                  className={!canComplete || isSubmitting ? "opacity-50" : ""}
-                  accessibilityLabel="Save and complete match"
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color={BLUE} />
-                  ) : (
-                    <Text className="text-button text-foreground">Save & Complete</Text>
-                  )}
-                </Button>
+                <SectionTitle>Score</SectionTitle>
+                <View style={{ marginBottom: 24 }}>
+                  <CreateMatchScoreEditor sets={sets} onChange={setSets} />
+                </View>
               </>
-            )}
-          </View>
-        </View>
+            ) : null}
+
+            <SectionTitle>Notes</SectionTitle>
+            <View style={{ marginBottom: 24 }}>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Add match notes"
+                placeholderTextColor={createMatch.placeholder}
+                multiline
+                textAlignVertical="top"
+                onFocus={() => setNotesFocused(true)}
+                onBlur={() => setNotesFocused(false)}
+                style={{
+                  ...inputStyle(notesFocused),
+                  minHeight: 80,
+                  paddingTop: 14,
+                }}
+                accessibilityLabel="Match notes"
+              />
+            </View>
+
+            <SectionTitle>Privacy</SectionTitle>
+            <View
+              style={{
+                backgroundColor: createMatch.cardBg,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: createMatch.cardBorder,
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                marginBottom: 16,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text
+                      style={{
+                        fontFamily: createMatch.fonts.bold,
+                        fontSize: 15,
+                        color: createMatch.ink,
+                      }}
+                    >
+                      Public
+                    </Text>
+                    <LucideIcon name="Info" size={15} color={createMatch.muted} />
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: createMatch.fonts.regular,
+                      fontSize: 13,
+                      color: createMatch.muted,
+                      marginTop: 2,
+                    }}
+                  >
+                    Public matches appear in Explore
+                  </Text>
+                </View>
+                <Switch checked={isPublic} onCheckedChange={setIsPublic} />
+              </View>
+            </View>
+
+            {!isScheduled && canComplete ? (
+              <TouchableOpacity
+                onPress={handleComplete}
+                disabled={isSubmitting}
+                hitSlop={STANDARD_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="Save and complete match"
+                style={{
+                  alignItems: "center",
+                  paddingVertical: 14,
+                  marginBottom: 8,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: createMatch.cardBorder,
+                  backgroundColor: createMatch.cardBg,
+                  opacity: isSubmitting ? 0.6 : 1,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: createMatch.fonts.extraBold,
+                    fontSize: 15,
+                    color: createMatch.ink,
+                  }}
+                >
+                  Save & Complete
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         </KeyboardAvoidingView>
 
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: 16,
+            paddingTop: 12,
+            paddingBottom: Math.max(insets.bottom, 16),
+            backgroundColor: createMatch.pageBg,
+            borderTopWidth: 1,
+            borderTopColor: createMatch.cardBorder,
+          }}
+        >
+          <TouchableOpacity
+            onPress={handleLive}
+            disabled={isSubmitting}
+            accessibilityRole="button"
+            accessibilityLabel={primaryLabel}
+            style={{
+              height: 52,
+              borderRadius: 14,
+              backgroundColor: createMatch.coral,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: isSubmitting ? 0.75 : 1,
+            }}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text
+                style={{
+                  fontFamily: createMatch.fonts.extraBold,
+                  fontSize: 16,
+                  color: "#FFFFFF",
+                }}
+              >
+                {primaryLabel}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
         <CalendarPicker
-        visible={showDatePicker}
-        selectedDate={matchDate}
-        onConfirm={(date) => {
-          setMatchDate(date);
-          setShowDatePicker(false);
-        }}
-        onCancel={() => setShowDatePicker(false)}
-        minimumDate={getMinDate()}
-        maximumDate={getMaxDate()}
-      />
-      <TimePicker
-        visible={showTimePicker}
-        selectedTime={matchTime}
-        onConfirm={(time) => {
-          setMatchTime(time);
-          setShowTimePicker(false);
-        }}
-        onCancel={() => setShowTimePicker(false)}
+          visible={showDatePicker}
+          selectedDate={matchDate}
+          onConfirm={(date) => {
+            setMatchDate(date);
+            setShowDatePicker(false);
+          }}
+          onCancel={() => setShowDatePicker(false)}
+          minimumDate={getMinDate()}
+          maximumDate={getMaxDate()}
+        />
+        <TimePicker
+          visible={showTimePicker}
+          selectedTime={matchTime}
+          onConfirm={(time) => {
+            setMatchTime(time);
+            setShowTimePicker(false);
+          }}
+          onCancel={() => setShowTimePicker(false)}
         />
       </View>
     </>

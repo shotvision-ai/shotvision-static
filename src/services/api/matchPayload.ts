@@ -20,6 +20,7 @@ export function toApiMatchWritePayload(
     live: "LIVE",
     scheduled: "SCHEDULED",
     completed: "FINISHED",
+    cancelled: "CANCELED",
   };
 
   const payload: Record<string, unknown> = {};

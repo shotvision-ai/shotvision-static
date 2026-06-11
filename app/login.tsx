@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { View, TouchableOpacity, Platform, Alert, ActivityIndicator, TextInput } from "react-native";
+import { View, TouchableOpacity, Platform, Alert, ActivityIndicator } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -14,7 +14,6 @@ import {
   shouldPreferBrowserGoogleSignIn,
   signInWithGoogle,
 } from "../src/services/google/signInWithGoogle";
-import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErrors";
 import { devLog } from "../src/utils/devLog";
 import { BRAND_BLUE, useAppTheming } from "../src/hooks/useAppTheming";
 
@@ -57,148 +56,6 @@ function AppleLogo({ size = 22, color = "#1f2937" }: { size?: number; color?: st
   );
 }
 
-function EmailIcon({ size = 20, color }: { size?: number; color: string }) {
-  return <LucideIcon name="Mail" size={size} color={color} />;
-}
-
-// ─── Email Link Entry Panel ──────────────────────────────────────────────────
-
-type EmailLinkPanelProps = {
-  disabled: boolean;
-  onClose: () => void;
-};
-
-function EmailLinkPanel({ disabled, onClose }: EmailLinkPanelProps) {
-  const { sendEmailSignInLink } = useAuth();
-  const { colors } = useAppTheming();
-  const [email, setEmail] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  const handleSend = useCallback(async () => {
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed || !trimmed.includes("@")) {
-      Alert.alert("Invalid email", "Enter a valid email address.");
-      return;
-    }
-    setIsSending(true);
-    try {
-      await sendEmailSignInLink(trimmed);
-      setSent(true);
-    } catch (err: unknown) {
-      devLog.error("[login] send email link failed:", err);
-      Alert.alert("Error", getUserFriendlyErrorMessage(err, "Failed to send sign-in link. Try again."));
-    } finally {
-      setIsSending(false);
-    }
-  }, [email, sendEmailSignInLink]);
-
-  if (sent) {
-    return (
-      <View
-        style={{
-          padding: 16,
-          borderRadius: 14,
-          borderWidth: 1.5,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          marginTop: 4,
-        }}
-      >
-        <View className="items-center gap-2">
-          <LucideIcon name="MailCheck" size={26} color={BLUE} />
-          <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground, textAlign: "center" }}>
-            Check your inbox
-          </Text>
-          <Text
-            style={{ fontSize: 13, color: colors.muted, textAlign: "center" }}
-          >
-            A sign-in link was sent to{" "}
-            <Text style={{ fontWeight: "600", color: colors.foreground }}>{email.trim()}</Text>
-            {". Open it on this device to sign in."}
-          </Text>
-        </View>
-        <TouchableOpacity
-          onPress={onClose}
-          style={{ marginTop: 14, alignItems: "center" }}
-          accessibilityRole="button"
-        >
-          <Text style={{ fontSize: 14, color: BLUE, fontWeight: "600" }}>Back to login</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  return (
-    <View
-      style={{
-        padding: 16,
-        borderRadius: 14,
-        borderWidth: 1.5,
-        borderColor: colors.border,
-        backgroundColor: colors.card,
-        marginTop: 4,
-      }}
-    >
-      <Text
-        style={{
-          fontSize: 14,
-          fontWeight: "600",
-          color: colors.foreground,
-          marginBottom: 10,
-        }}
-      >
-        Enter your email
-      </Text>
-      <TextInput
-        value={email}
-        onChangeText={setEmail}
-        placeholder="you@example.com"
-        placeholderTextColor={colors.muted}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="send"
-        onSubmitEditing={() => void handleSend()}
-        style={{
-          height: 46,
-          borderRadius: 10,
-          borderWidth: 1.5,
-          borderColor: colors.border,
-          backgroundColor: colors.mutedSurface ?? colors.card,
-          paddingHorizontal: 14,
-          fontSize: 15,
-          color: colors.foreground,
-          marginBottom: 12,
-        }}
-      />
-      <TouchableOpacity
-        onPress={() => void handleSend()}
-        disabled={isSending || disabled}
-        style={{
-          backgroundColor: BLUE,
-          borderRadius: 10,
-          paddingVertical: 12,
-          alignItems: "center",
-          opacity: isSending || disabled ? 0.6 : 1,
-        }}
-        accessibilityRole="button"
-      >
-        {isSending ? (
-          <ActivityIndicator size="small" color="#ffffff" />
-        ) : (
-          <Text style={{ fontSize: 15, fontWeight: "600", color: "#ffffff" }}>
-            Send sign-in link
-          </Text>
-        )}
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onClose} style={{ marginTop: 12, alignItems: "center" }}>
-        <Text style={{ fontSize: 13, color: colors.muted }}>Cancel</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 // ─── Login body ──────────────────────────────────────────────────────────────
 
 type LoginBodyProps = {
@@ -220,7 +77,6 @@ function LoginBody({
 }: LoginBodyProps) {
   const router = useRouter();
   const { colors, isDark } = useAppTheming();
-  const [showEmailPanel, setShowEmailPanel] = useState(false);
   const [isLoggingInApple, setIsLoggingInApple] = useState(false);
 
   const oauthButtonStyle = {
@@ -372,31 +228,6 @@ function LoginBody({
             )}
           </View>
         </TouchableOpacity>
-
-        {/* Email Link (fallback) */}
-        {!showEmailPanel ? (
-          <TouchableOpacity
-            onPress={() => setShowEmailPanel(true)}
-            disabled={googleDisabled}
-            style={{
-              ...oauthButtonStyle,
-              opacity: googleDisabled ? 0.5 : 1,
-            }}
-            accessibilityRole="button"
-          >
-            <View className="flex-row items-center gap-3">
-              <EmailIcon size={20} color={colors.foreground} />
-              <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>
-                Continue with Email Link
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <EmailLinkPanel
-            disabled={googleDisabled}
-            onClose={() => setShowEmailPanel(false)}
-          />
-        )}
 
         <Text className="text-caption text-muted-foreground text-center mt-8 leading-5">
           {"By continuing you agree to our "}

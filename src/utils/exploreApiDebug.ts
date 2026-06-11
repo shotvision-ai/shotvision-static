@@ -56,6 +56,9 @@ export function logExploreApiResponse(
           player1Name: firstRaw.player1Name ?? firstRaw.playerA,
           player2Name: firstRaw.player2Name ?? firstRaw.playerB,
           likesCount: firstRaw.likesCount ?? firstRaw.likes_count,
+          sets: firstRaw.sets,
+          setScores: firstRaw.setScores,
+          set_scores: firstRaw.set_scores,
         }
       : null,
     mappedRows: mapped.slice(0, 8).map((m) => ({

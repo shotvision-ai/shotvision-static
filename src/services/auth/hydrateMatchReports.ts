@@ -14,7 +14,6 @@ export async function hydrateMatchReportsForUser(userId: string): Promise<void> 
       devLog.info("[matchReports]", `hydrated userId=${id} apiCount=${apiIds.length}`);
     }
   } catch (err) {
-    devLog.warn("[hydrateMatchReports] API list failed, using local cache:", err);
-    await useMatchReportStore.getState().hydrateForUser(id, []);
+    devLog.warn("[hydrateMatchReports] API list failed, keeping local cache:", err);
   }
 }

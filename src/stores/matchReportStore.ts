@@ -19,12 +19,16 @@ export const useMatchReportStore = create<MatchReportState>((set, get) => ({
   overrides: {},
   hydratedForUserId: null,
 
-  hydrateForUser: async (userId, apiMatchIds = []) => {
+  hydrateForUser: async (userId, apiMatchIds) => {
     const id = userId.trim();
     if (!id) return;
 
     const persisted = await loadPersistedReportedMatchIds(id);
-    const merged = new Set([...persisted, ...apiMatchIds.map((m) => m.trim()).filter(Boolean)]);
+    const fromApi = (apiMatchIds ?? []).map((m) => m.trim()).filter(Boolean);
+    const fromMemory = Object.entries(get().overrides[id] ?? {})
+      .filter(([, reported]) => reported)
+      .map(([matchId]) => matchId);
+    const merged = new Set([...persisted, ...fromApi, ...fromMemory]);
     const map: Record<string, boolean> = {};
     merged.forEach((matchId) => {
       map[matchId] = true;

@@ -2,24 +2,26 @@ import type { ReactNode } from "react";
 import { View, type TextStyle, type ViewStyle } from "react-native";
 import { Text } from "~/components/ui/text";
 import { useTheme } from "~/theming/ThemeProvider";
+import { Colors } from "~/lib/colors";
 
-const BRAND_BLUE = "#2563eb";
+export const BRAND_BLUE = Colors.primary;
 
 /** Tinted surfaces that stay readable in light and dark mode. */
 export function usePolicySurfaces() {
   const { theme } = useTheme();
   const isDark = theme.name === "dark";
+  const brandPrimary = theme.colors.primary ?? "hsl(221 83% 53%)";
 
   return {
-    foreground: theme.colors.foreground ?? (isDark ? "#f9fafb" : "#1f2937"),
-    muted: theme.colors.mutedForeground ?? (isDark ? "#9ca3af" : "#6b7280"),
+    foreground: theme.colors.foreground ?? (isDark ? "hsl(220 20% 96%)" : "hsl(222 47% 11%)"),
+    muted: theme.colors.mutedForeground ?? (isDark ? "hsl(220 12% 62%)" : "hsl(220 12% 42%)"),
     card: theme.colors.card ?? theme.colors.background,
-    border: theme.colors.border ?? (isDark ? "hsl(240 3.7% 15.9%)" : "hsl(240 5.9% 90%)"),
+    border: theme.colors.border ?? (isDark ? "hsl(222 14% 20%)" : "hsl(220 24% 88%)"),
     primary: {
-      bg: isDark ? "rgba(37,99,235,0.15)" : "rgba(37,99,235,0.06)",
-      border: isDark ? "rgba(37,99,235,0.28)" : "rgba(37,99,235,0.12)",
-      softBg: isDark ? "rgba(37,99,235,0.1)" : "rgba(37,99,235,0.04)",
-      accent: BRAND_BLUE,
+      bg: isDark ? "rgba(96, 165, 250, 0.14)" : "rgba(37, 99, 235, 0.06)",
+      border: isDark ? "rgba(96, 165, 250, 0.28)" : "rgba(37, 99, 235, 0.12)",
+      softBg: isDark ? "rgba(96, 165, 250, 0.1)" : "rgba(37, 99, 235, 0.04)",
+      accent: brandPrimary,
     },
     warning: {
       bg: isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.06)",
@@ -156,4 +158,3 @@ export function PolicyWarningCallout({ children }: { children: ReactNode }) {
   );
 }
 
-export { BRAND_BLUE };

@@ -4,6 +4,7 @@ import { Text } from "~/components/ui/text";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import type { Match } from "~/types/match";
 import {
+  canEditMatchNotes,
   isMatchEditableByCreator,
   isMatchOwner,
   resolveMatchEditOwnerOptions,
@@ -12,6 +13,8 @@ import {
 import { canOwnerCompleteMatch } from "~/src/utils/matchCompletion";
 import { getEditMatchNotesHref } from "~/src/utils/matchNotes";
 import { getEditMatchCompleteHref, getEditMatchHref } from "~/src/utils/matchLifecycle";
+import { exploreColors, exploreFontFamily } from "~/lib/exploreDesign";
+import { MATCH_LIST_CARD as L } from "./matchListCardLayout";
 import { useAppTheming } from "~/src/hooks/useAppTheming";
 import { STANDARD_HIT_SLOP } from "~/src/utils/touchA11y";
 
@@ -20,6 +23,9 @@ type OwnerMatchCardActionsProps = {
   currentUserId: string | undefined;
   /** My Matches list — viewer is always the organizer. */
   isOwnDashboardMatch?: boolean;
+  compact?: boolean;
+  /** Match Explore list card spacing and coral/green styling. */
+  exploreList?: boolean;
 };
 
 /**
@@ -30,6 +36,8 @@ export function OwnerMatchCardActions({
   match,
   currentUserId,
   isOwnDashboardMatch = false,
+  compact = false,
+  exploreList = false,
 }: OwnerMatchCardActionsProps) {
   const router = useRouter();
   const { colors, brand } = useAppTheming();
@@ -43,8 +51,24 @@ export function OwnerMatchCardActions({
   }
 
   const editWindow = isMatchEditableByCreator(resolvedMatch, currentUserId, ownerOptions);
+  const notesEditable = canEditMatchNotes(resolvedMatch, currentUserId, ownerOptions);
 
   const showCompleteAction = canOwnerCompleteMatch(resolvedMatch, currentUserId, ownerOptions);
+
+  const listCompact = compact || exploreList;
+  const actionMb = exploreList ? L.actionMb : listCompact ? 4 : 12;
+  const actionMinH = exploreList ? L.actionMinH : listCompact ? 32 : 44;
+  const actionPy = exploreList ? L.actionPy : listCompact ? 8 : 10;
+  const actionFont = exploreList ? L.actionFont : listCompact ? 13 : 13;
+  const actionCompleteFont = exploreList ? L.actionCompleteFont : actionFont;
+  const iconSize = exploreList ? L.actionIcon : listCompact ? 16 : 14;
+  const editRowPt = listCompact ? 0 : 12;
+  const editRowMb = exploreList ? L.actionMb : listCompact ? 4 : 12;
+  const editRowGap = exploreList ? L.actionGap : listCompact ? 8 : 8;
+  const actionRadius = exploreList ? L.actionRadius : 10;
+  const actionMt = exploreList ? L.actionMt : 0;
+  const actionRowMt = exploreList ? L.actionRowMt : 0;
+  const completeMt = exploreList ? L.actionMt : 0;
 
   return (
     <View>
@@ -55,21 +79,35 @@ export function OwnerMatchCardActions({
           accessibilityRole="button"
           accessibilityLabel="Start scheduled match as live"
           style={{
-            minHeight: 44,
+            minHeight: actionMinH,
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
-            marginBottom: 12,
-            paddingVertical: 10,
-            borderRadius: 10,
-            backgroundColor: "rgba(37,99,235,0.1)",
-            borderWidth: 1,
+            marginTop: actionMt,
+            marginBottom: actionMb,
+            paddingVertical: actionPy,
+            borderRadius: actionRadius,
+            backgroundColor: exploreList ? exploreColors.editBtnBg : "rgba(37,99,235,0.1)",
+            borderWidth: exploreList ? 0 : 1,
             borderColor: "rgba(37,99,235,0.3)",
           }}
         >
-          <LucideIcon name="Play" size={14} color="#2563eb" />
-          <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563eb" }}>Start Live</Text>
+          <LucideIcon
+            name="Play"
+            size={iconSize}
+            color={exploreList ? exploreColors.editBtnText : "#2563eb"}
+          />
+          <Text
+            style={{
+              fontFamily: exploreList ? exploreFontFamily.extraBold : undefined,
+              fontSize: actionFont,
+              fontWeight: exploreList ? undefined : "600",
+              color: exploreList ? exploreColors.editBtnText : "#2563eb",
+            }}
+          >
+            Start Live
+          </Text>
         </TouchableOpacity>
       ) : null}
 
@@ -80,84 +118,127 @@ export function OwnerMatchCardActions({
           accessibilityRole="button"
           accessibilityLabel="Save and complete match"
           style={{
-            minHeight: 44,
+            minHeight: actionMinH,
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "center",
-            gap: 6,
-            marginBottom: 12,
-            paddingVertical: 10,
-            borderRadius: 10,
-            backgroundColor: "rgba(34,197,94,0.1)",
-            borderWidth: 1,
+            gap: 8,
+            marginTop: completeMt,
+            marginBottom: actionMb,
+            paddingVertical: actionPy,
+            borderRadius: actionRadius,
+            backgroundColor: exploreList
+              ? exploreColors.completeBtnBg
+              : "rgba(34,197,94,0.1)",
+            borderWidth: exploreList ? 0 : 1,
             borderColor: "rgba(34,197,94,0.3)",
           }}
         >
-          <LucideIcon name="CircleCheck" size={14} color="#16a34a" />
-          <Text style={{ fontSize: 13, fontWeight: "600", color: "#16a34a" }}>Save & Complete</Text>
+          <LucideIcon
+            name="CircleCheck"
+            size={iconSize}
+            color={exploreList ? exploreColors.completeBtnText : "#16a34a"}
+          />
+          <Text
+            style={{
+              fontFamily: exploreList ? exploreFontFamily.extraBold : undefined,
+              fontSize: actionCompleteFont,
+              fontWeight: exploreList ? undefined : "600",
+              color: exploreList ? exploreColors.completeBtnText : "#16a34a",
+            }}
+          >
+            Save & Complete
+          </Text>
         </TouchableOpacity>
       ) : null}
 
-      {editWindow ? (
+      {editWindow || notesEditable ? (
         <View
           style={{
             flexDirection: "row",
-            gap: 8,
-            marginBottom: 12,
-            paddingTop: 12,
-            borderTopWidth: 1,
+            gap: editRowGap,
+            marginTop: exploreList && !showCompleteAction ? actionRowMt : 0,
+            marginBottom: editRowMb,
+            paddingTop: editRowPt,
+            borderTopWidth: exploreList ? 0 : 1,
             borderTopColor: colors.dividerSubtle,
           }}
         >
-          <TouchableOpacity
-            onPress={() => router.push(getEditMatchHref(resolvedMatch.id))}
-            hitSlop={STANDARD_HIT_SLOP}
-            accessibilityRole="button"
-            accessibilityLabel={
-              resolvedMatch.status === "live" || resolvedMatch.status === "scheduled"
-                ? "Edit match"
-                : "Edit score"
-            }
-            style={{
-              flex: 1,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              minHeight: 44,
-              paddingVertical: 8,
-              borderRadius: 10,
-              backgroundColor: "rgba(37,99,235,0.08)",
-              borderWidth: 1,
-              borderColor: "rgba(37,99,235,0.2)",
-            }}
-          >
-            <LucideIcon name="PenLine" size={14} color="#2563eb" />
-            <Text style={{ fontSize: 12, fontWeight: "600", color: "#2563eb" }}>Edit Score</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push(getEditMatchNotesHref(resolvedMatch.id))}
-            hitSlop={STANDARD_HIT_SLOP}
-            accessibilityRole="button"
-            accessibilityLabel="Edit match notes"
-            style={{
-              flex: 1,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              minHeight: 44,
-              paddingVertical: 8,
-              borderRadius: 10,
-              backgroundColor: "rgba(245,158,11,0.08)",
-              borderWidth: 1,
-              borderColor: "rgba(245,158,11,0.2)",
-            }}
-          >
-            <LucideIcon name="StickyNote" size={14} color="#f59e0b" />
-            <Text style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}>Notes</Text>
-          </TouchableOpacity>
-          {resolvedMatch.status === "completed" ? (
+          {editWindow && resolvedMatch.status !== "completed" ? (
+            <TouchableOpacity
+              onPress={() => router.push(getEditMatchHref(resolvedMatch.id))}
+              hitSlop={STANDARD_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Edit match"
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                minHeight: actionMinH,
+                paddingVertical: actionPy,
+                borderRadius: actionRadius,
+                backgroundColor: exploreList ? exploreColors.editBtnBg : "rgba(37,99,235,0.08)",
+                borderWidth: exploreList ? 0 : 1,
+                borderColor: "rgba(37,99,235,0.2)",
+              }}
+            >
+              <LucideIcon
+                name="PenLine"
+                size={iconSize}
+                color={exploreList ? exploreColors.editBtnText : "#2563eb"}
+              />
+              <Text
+                style={{
+                  fontFamily: exploreList ? exploreFontFamily.extraBold : undefined,
+                  fontSize: actionFont,
+                  fontWeight: exploreList ? undefined : "600",
+                  color: exploreList ? exploreColors.editBtnText : "#2563eb",
+                }}
+              >
+                Edit
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {notesEditable ? (
+            <TouchableOpacity
+              onPress={() => router.push(getEditMatchNotesHref(resolvedMatch.id))}
+              hitSlop={STANDARD_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Edit match notes"
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                minHeight: actionMinH,
+                paddingVertical: actionPy,
+                borderRadius: actionRadius,
+                backgroundColor: exploreList ? exploreColors.notesBtnBg : "rgba(245,158,11,0.08)",
+                borderWidth: exploreList ? 0 : 1,
+                borderColor: "rgba(245,158,11,0.2)",
+              }}
+            >
+              <LucideIcon
+                name="FileText"
+                size={iconSize}
+                color={exploreList ? exploreColors.coral : "#f59e0b"}
+              />
+              <Text
+                style={{
+                  fontFamily: exploreList ? exploreFontFamily.extraBold : undefined,
+                  fontSize: actionFont,
+                  fontWeight: exploreList ? undefined : "600",
+                  color: exploreList ? exploreColors.coral : "#f59e0b",
+                }}
+              >
+                Notes
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {editWindow && resolvedMatch.status === "completed" && !exploreList ? (
             <View
               style={{
                 paddingHorizontal: 8,
@@ -167,7 +248,7 @@ export function OwnerMatchCardActions({
                 justifyContent: "center",
               }}
             >
-              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "500" }}>48h limit</Text>
+              <Text style={{ fontSize: 10, color: colors.muted, fontWeight: "500" }}>48h scores</Text>
             </View>
           ) : null}
         </View>

@@ -1,35 +1,39 @@
 import { Theme } from "../Theme";
 
+/** Cool blue-gray canvas with soft elevated surfaces (no pure white chrome). */
 const lightTheme: Theme = {
   name: "light",
   colors: {
-    background: "hsl(220 60% 98%)",
+    background: "hsl(220 42% 96%)",
     foreground: "hsl(222 47% 11%)",
-    card: "hsl(0 0% 100%)",
-    cardForeground: "hsl(240 10% 3.9%)",
-    popover: "hsl(0 0% 100%)",
-    popoverForeground: "hsl(240 10% 3.9%)",
-    primary: "hsl(221 83% 53%)", // Blue-600
+    card: "hsl(220 35% 99%)",
+    cardForeground: "hsl(222 47% 11%)",
+    popover: "hsl(220 35% 99%)",
+    popoverForeground: "hsl(222 47% 11%)",
+    primary: "hsl(221 83% 53%)",
     primaryForeground: "hsl(0 0% 100%)",
-    secondary: "hsl(240 4.8% 95.9%)",
-    secondaryForeground: "hsl(240 5.9% 10%)",
-    tertiary: "hsl(217 91% 60%)", // Scheduled Blue
+    secondary: "hsl(220 32% 93%)",
+    secondaryForeground: "hsl(222 47% 11%)",
+    tertiary: "hsl(217 91% 60%)",
     tertiaryForeground: "hsl(0 0% 100%)",
-    muted: "hsl(240 4.8% 95.9%)",
-    mutedForeground: "hsl(240 3.8% 46.1%)",
-    accent: "hsl(240 4.8% 95.9%)",
-    accentForeground: "hsl(240 5.9% 10%)",
-    success: "hsl(221 83% 53%)", // Blue - Completed
+    muted: "hsl(220 28% 91%)",
+    mutedForeground: "hsl(220 12% 42%)",
+    accent: "hsl(221 55% 94%)",
+    accentForeground: "hsl(222 47% 11%)",
+    success: "hsl(221 83% 53%)",
     successForeground: "hsl(0 0% 100%)",
-    warning: "hsl(25 95% 53%)", // Live - Orange
+    warning: "hsl(25 95% 53%)",
     warningForeground: "hsl(0 0% 100%)",
     destructive: "hsl(0 84.2% 60.2%)",
     destructiveForeground: "hsl(0 0% 98%)",
-    border: "hsl(240 5.9% 90%)",
-    notification: "hsl(240 5.9% 90%)",
-    input: "hsl(240 5.9% 90%)",
+    border: "hsl(220 24% 88%)",
+    notification: "hsl(220 24% 88%)",
+    input: "hsl(220 28% 91%)",
     ring: "hsl(221 83% 53%)",
     overlay: "hsl(0 0% 0%)",
+    liveCardTint: "hsl(32 100% 96%)",
+    scheduledBadgeBackground: "hsl(221 85% 96%)",
+    finishedBadgeBackground: "hsl(142 45% 94%)",
   },
   typography: {
     h1: {

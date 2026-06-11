@@ -2,12 +2,15 @@ import { View, Animated, StyleSheet } from "react-native";
 import { Text } from "~/components/ui/text";
 import { MatchStatus } from "~/types/match";
 import { useEffect, useRef } from "react";
+import { useAppTheming } from "~/src/hooks/useAppTheming";
 
 interface StatusBadgeProps {
   status: MatchStatus;
+  compact?: boolean;
 }
 
-export function StatusBadge({ status }: StatusBadgeProps) {
+export function StatusBadge({ status, compact = false }: StatusBadgeProps) {
+  const { colors } = useAppTheming();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -36,22 +39,29 @@ export function StatusBadge({ status }: StatusBadgeProps) {
       case "live":
         return {
           text: "Live",
-          bgColor: "#FFF4E5",
-          textColor: "#F97316",
-          borderColor: "#F97316",
+          bgColor: colors.badge.live.bg,
+          textColor: colors.badge.live.text,
+          borderColor: colors.badge.live.border,
         };
       case "completed":
         return {
           text: "Finished",
-          bgColor: "#E6F4EA",
-          textColor: "#16A34A",
+          bgColor: colors.badge.finished.bg,
+          textColor: colors.badge.finished.text,
           borderColor: undefined,
         };
       case "scheduled":
         return {
           text: "Scheduled",
-          bgColor: "#E8F0FE",
-          textColor: "#3B82F6",
+          bgColor: colors.badge.scheduled.bg,
+          textColor: colors.badge.scheduled.text,
+          borderColor: undefined,
+        };
+      case "cancelled":
+        return {
+          text: "Cancelled",
+          bgColor: "rgba(239,68,68,0.12)",
+          textColor: "#dc2626",
           borderColor: undefined,
         };
     }
@@ -63,6 +73,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     <View
       style={[
         styles.badge,
+        compact && styles.badgeCompact,
         {
           backgroundColor: config.bgColor,
           borderLeftWidth: status === "live" ? 3 : 0,
@@ -81,7 +92,11 @@ export function StatusBadge({ status }: StatusBadgeProps) {
           ]}
         />
       )}
-      <Text style={[styles.text, { color: config.textColor }]}>{config.text}</Text>
+      <Text
+        style={[styles.text, compact && styles.textCompact, { color: config.textColor }]}
+      >
+        {config.text}
+      </Text>
     </View>
   );
 }
@@ -94,6 +109,11 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
   },
+  badgeCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   pulseDot: {
     width: 6,
     height: 6,
@@ -103,5 +123,8 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  textCompact: {
+    fontSize: 11,
   },
 });

@@ -24,6 +24,12 @@ import {
   DMSans_600SemiBold,
   DMSans_700Bold,
 } from "@expo-google-fonts/dm-sans";
+import {
+  Inter_400Regular,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+  Inter_900Black,
+} from "@expo-google-fonts/inter";
 import { PortalHost } from "@rn-primitives/portal";
 import { WebPortalContext } from "~/components/WebPortalContext";
 import * as SplashScreen from "expo-splash-screen";
@@ -53,6 +59,10 @@ function RootContent() {
     DMSans_500Medium,
     DMSans_600SemiBold,
     DMSans_700Bold,
+    Inter_400Regular,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    Inter_900Black,
   });
   const isLoadingFonts = !fontsLoaded && !fontError;
 

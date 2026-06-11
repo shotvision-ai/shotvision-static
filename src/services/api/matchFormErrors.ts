@@ -42,7 +42,7 @@ function linesFromAppError(error: AppError): string[] {
   if (isFinishedMatchLockedMessage(error.message)) {
     return [
       "This finished match can't be updated with a status change.",
-      "Save your score and note changes only, or try again within 48 hours of completion.",
+      "Save score changes only, or try again within 48 hours of completion. Notes can still be updated anytime.",
     ];
   }
 

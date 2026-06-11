@@ -142,11 +142,12 @@ export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
 
     const existing = get().overrides[id];
     const apiCount = normalizeApiCount(api);
-    const apiLikedProvided = api.likedByMeProvided === true;
-    const apiLiked = apiLikedProvided ? Boolean(api.isLiked) : undefined;
+    const apiLiked = typeof api.isLiked === "boolean" ? api.isLiked : undefined;
+    const apiLikedAuthoritative =
+      api.likedByMeProvided === true || context === "detail" || context === "toggle";
 
     // Dashboard rows often omit like fields — avoid seeding {0, false} overrides.
-    if (context === "dashboard" && !existing && apiCount === undefined && !apiLikedProvided) {
+    if (context === "dashboard" && !existing && apiCount === undefined && !apiLikedAuthoritative) {
       return;
     }
 
@@ -162,9 +163,9 @@ export const useMatchLikeStore = create<MatchLikeState>((set, get) => ({
       isLiked = apiLiked ?? existing?.isLiked ?? false;
     } else if (context === "explore") {
       // Explore exposes likesCount but not likedByMe — never clear a known local like.
-      isLiked = existing?.isLiked ?? apiLiked ?? false;
+      isLiked = existing?.isLiked ?? (apiLikedAuthoritative ? apiLiked : undefined) ?? false;
     } else {
-      isLiked = existing?.isLiked ?? apiLiked ?? false;
+      isLiked = existing?.isLiked ?? (apiLikedAuthoritative ? apiLiked : undefined) ?? false;
     }
 
     const next: MatchLikeSnapshot = { likesCount, isLiked };

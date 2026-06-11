@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { memo, useState } from "react";
 import { View, Pressable, TouchableOpacity, Modal, Alert, TextInput, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
@@ -7,10 +7,10 @@ import { ProfileAvatar } from "~/components/ui/ProfileAvatar";
 import { Match } from "~/types/match";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
+import { useAppTheming } from "~/src/hooks/useAppTheming";
 import { useMatchLike } from "../../src/hooks/useMatchLike";
 import { useMatchReport } from "../../src/hooks/useMatchReport";
-import { useAuth } from "../../src/context/AuthContext";
-import { useCurrentUserAvatarProps } from "../../src/hooks/useCurrentUserAvatar";
+import { useMatchListViewer } from "../../src/context/MatchListViewerContext";
 import {
   isMatchParticipantSelf,
   resolveMatchParticipantImageUrl,
@@ -20,6 +20,8 @@ import { MatchVisibilityControl } from "./MatchVisibilityControl";
 import { OwnerMatchCardActions } from "./OwnerMatchCardActions";
 import { MatchLikeButton } from "./MatchLikeButton";
 import { STANDARD_HIT_SLOP } from "../../src/utils/touchA11y";
+import { MATCH_LIST_CARD as L } from "./matchListCardLayout";
+import { MatchListCardScore } from "./MatchListCardScore";
 
 interface PublicMatchCardProps {
   match: Match;
@@ -34,11 +36,10 @@ const REPORT_REASONS = [
   "Wrong profile picture",
 ];
 
-export function PublicMatchCard({ match }: PublicMatchCardProps) {
+function PublicMatchCardComponent({ match }: PublicMatchCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
-  const { user: currentUser } = useAuth();
-  const currentUserAvatar = useCurrentUserAvatarProps(currentUser?.id);
+  const { user: currentUser, avatar: currentUserAvatar } = useMatchListViewer();
   const [showReportModal, setShowReportModal] = useState(false);
   const [showUndoModal, setShowUndoModal] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
@@ -99,19 +100,23 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
 
   const isOwner = isMatchOwner(match, currentUser?.id);
 
+  const { colors: appColors } = useAppTheming();
+
   const accentColor =
-    match.status === "live" ? "#f59e0b" : match.status === "scheduled" ? "#2563eb" : "#22c55e";
+    match.status === "live"
+      ? theme.colors.warning ?? appColors.warning
+      : match.status === "scheduled"
+        ? theme.colors.tertiary ?? appColors.tertiary
+        : match.status === "cancelled"
+          ? "#dc2626"
+        : appColors.badge.finished.text;
 
   const openMatchDetails = () => router.push(`/match/${match.id}`);
 
   const cardContainerStyle = {
     backgroundColor:
-      match.status === "live"
-        ? theme.name === "dark"
-          ? "rgba(251, 146, 60, 0.1)"
-          : "#FFF4E5"
-        : theme.colors.card,
-    shadowColor: "#2563eb",
+      match.status === "live" ? appColors.liveCardTint : theme.colors.card,
+    shadowColor: appColors.primary,
     shadowOffset: { width: 0, height: 2 } as const,
     shadowOpacity: 0.07,
     shadowRadius: 12,
@@ -123,11 +128,22 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
 
   return (
     <>
-    <View className="rounded-2xl mb-4 overflow-hidden" style={cardContainerStyle}>
-      {/* Status accent stripe */}
-      <View style={{ height: 4, backgroundColor: accentColor }} />
-      <View style={{ padding: 20 }}>
-        <View className="flex-row items-start justify-between mb-3">
+    <View
+      className="rounded-xl overflow-hidden"
+      style={{ ...cardContainerStyle, marginBottom: L.cardMarginBottom }}
+    >
+      <View style={{ height: L.accentHeight, backgroundColor: accentColor }} />
+      <View
+        style={{
+          paddingHorizontal: L.padH,
+          paddingTop: L.padTop,
+          paddingBottom: L.padBottom,
+        }}
+      >
+        <View
+          className="flex-row items-start justify-between"
+          style={{ marginBottom: L.rowGap }}
+        >
           <View className="flex-1 flex-row items-center flex-wrap gap-2">
             {isOwner ? (
               <MatchVisibilityControl match={match} variant="chip" />
@@ -146,14 +162,14 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
               {getWinnerText() ? (
                 <View className="flex-row items-center">
                   <LucideIcon name="Trophy" size={14} color="#22C55E" style={{ marginRight: 4 }} />
-                  <Text style={{ fontSize: 15, fontWeight: "600", color: "#2563eb" }}>
+                  <Text style={{ fontSize: L.winner, fontWeight: "600", color: "#2563eb" }}>
                     {getWinnerText()}
                   </Text>
                 </View>
               ) : null}
             </Pressable>
           </View>
-          <StatusBadge status={match.status} />
+          <StatusBadge status={match.status} compact />
         </View>
 
         <Pressable
@@ -162,16 +178,19 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
           accessibilityRole="button"
           accessibilityLabel="Open match details"
         >
-        <View className="flex-row items-center justify-between mb-4">
-          {/* Player A */}
+        <View
+          className="flex-row items-center justify-between"
+          style={{ marginBottom: L.sectionGap }}
+        >
           <View className="items-center flex-1">
             <View
               style={{
-                width: 80,
-                height: 80,
-                borderRadius: 40,
-                padding: 3,
-                borderWidth: match.status === "completed" && match.winner === "playerA" ? 3 : 0,
+                width: L.avatarRing,
+                height: L.avatarRing,
+                borderRadius: L.avatarRing / 2,
+                padding: 2,
+                borderWidth:
+                  match.status === "completed" && match.winner === "playerA" ? L.winnerRing : 0,
                 borderColor:
                   match.status === "completed" && match.winner === "playerA"
                     ? "#FFD700"
@@ -180,9 +199,9 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             >
               <View
                 style={{
-                  width: 74,
-                  height: 74,
-                  borderRadius: 37,
+                  width: L.avatar,
+                  height: L.avatar,
+                  borderRadius: L.avatar / 2,
                   overflow: "hidden",
                 }}
                 className="bg-muted"
@@ -207,40 +226,37 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                       : match.playerAUserId ?? `${match.id}:playerA`
                   }
                   fallbackGender={isPlayerASelf ? undefined : match.playerAGender}
-                  size={74}
+                  size={L.avatarInner}
                   variant="plain"
                 />
               </View>
             </View>
-            <View className="flex-row items-center mt-3">
-              <Text
-                className="text-foreground text-center"
-                numberOfLines={2}
-                style={{
-                  fontSize: 18,
-                  fontWeight:
-                    match.status === "completed" && match.winner === "playerA" ? "700" : "600",
-                }}
-              >
-                {match.playerA}
-              </Text>
-            </View>
+            <Text
+              className="text-foreground text-center mt-1.5"
+              numberOfLines={1}
+              style={{
+                fontSize: L.playerName,
+                fontWeight:
+                  match.status === "completed" && match.winner === "playerA" ? "700" : "600",
+              }}
+            >
+              {match.playerA}
+            </Text>
           </View>
 
-          {/* VS */}
-          <View style={{ width: 36, alignItems: "center" }}>
-            <Text style={{ fontSize: 14, fontWeight: "500", color: "#9CA3AF" }}>vs</Text>
+          <View style={{ width: 28, alignItems: "center" }}>
+            <Text style={{ fontSize: L.vs, fontWeight: "500", color: "#9CA3AF" }}>vs</Text>
           </View>
 
-          {/* Player B */}
           <View className="items-center flex-1">
             <View
               style={{
-                width: 80,
-                height: 80,
-                borderRadius: 40,
-                padding: 3,
-                borderWidth: match.status === "completed" && match.winner === "playerB" ? 3 : 0,
+                width: L.avatarRing,
+                height: L.avatarRing,
+                borderRadius: L.avatarRing / 2,
+                padding: 2,
+                borderWidth:
+                  match.status === "completed" && match.winner === "playerB" ? L.winnerRing : 0,
                 borderColor:
                   match.status === "completed" && match.winner === "playerB"
                     ? "#FFD700"
@@ -249,9 +265,9 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             >
               <View
                 style={{
-                  width: 74,
-                  height: 74,
-                  borderRadius: 37,
+                  width: L.avatar,
+                  height: L.avatar,
+                  borderRadius: L.avatar / 2,
                   overflow: "hidden",
                 }}
                 className="bg-muted"
@@ -276,63 +292,31 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                       : match.playerBUserId ?? `${match.id}:playerB`
                   }
                   fallbackGender={isPlayerBSelf ? undefined : match.playerBGender}
-                  size={74}
+                  size={L.avatarInner}
                   variant="plain"
                 />
               </View>
             </View>
-            <View className="flex-row items-center mt-3">
-              <Text
-                className="text-foreground text-center"
-                numberOfLines={2}
-                style={{
-                  fontSize: 18,
-                  fontWeight:
-                    match.status === "completed" && match.winner === "playerB" ? "700" : "600",
-                }}
-              >
-                {match.playerB}
-              </Text>
-            </View>
+            <Text
+              className="text-foreground text-center mt-1.5"
+              numberOfLines={1}
+              style={{
+                fontSize: L.playerName,
+                fontWeight:
+                  match.status === "completed" && match.winner === "playerB" ? "700" : "600",
+              }}
+            >
+              {match.playerB}
+            </Text>
           </View>
         </View>
 
-        {/* Scheduled Info */}
-        {match.status === "scheduled" && (
-          <View className="mb-4">
-            <Text style={{ fontSize: 14, color: "#6B7280", opacity: 0.7 }}>
-              Scheduled for {formatDate(match.matchDate)}
-            </Text>
-          </View>
-        )}
-
-        {/* Score Section */}
-        {(match.sets ?? []).length > 0 && match.status !== "scheduled" && (
-          <View className="mb-4">
-            <Text className="text-caption font-medium text-muted-foreground mb-3">Score</Text>
-            <View className="flex-row gap-2.5">
-              {(match.sets ?? []).map((set, index) => (
-                <View
-                  key={index}
-                  className="bg-muted/40 border border-border rounded-xl"
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                  }}
-                >
-                  <Text className="text-foreground font-semibold" style={{ fontSize: 16 }}>
-                    {set.playerAScore}-{set.playerBScore}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+        <MatchListCardScore match={match} />
         </Pressable>
 
-        <OwnerMatchCardActions match={match} currentUserId={currentUser?.id} />
+        <OwnerMatchCardActions match={match} currentUserId={currentUser?.id} compact />
 
-        <View className="h-px bg-border my-3" />
+        <View className="h-px bg-border my-2" />
 
         <View className="flex-row items-center justify-between">
           <Pressable
@@ -342,13 +326,13 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             accessibilityLabel="Open match details"
           >
             <View className="flex-row items-center flex-1">
-              <LucideIcon name="Calendar" size={14} color="#6B7280" style={{ marginRight: 6 }} />
-              <Text style={{ fontSize: 13, color: "#6B7280", marginRight: 12, opacity: 0.7 }}>
+              <LucideIcon name="Calendar" size={12} color="#6B7280" style={{ marginRight: 4 }} />
+              <Text style={{ fontSize: L.meta, color: "#6B7280", marginRight: 8, opacity: 0.7 }}>
                 {formatDate(match.matchDate)}
               </Text>
               {match.location ? (
                 <Text
-                  style={{ fontSize: 13, color: "#6B7280", flex: 1, opacity: 0.7 }}
+                  style={{ fontSize: L.meta, color: "#6B7280", flex: 1, opacity: 0.7 }}
                   numberOfLines={1}
                 >
                   {match.location}
@@ -367,44 +351,60 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
               readOnlyWhenDisabled={isOwner}
             />
 
-            {!isOwner ? (
-              <TouchableOpacity
-                onPress={() => {
-                  if (isReported) handleUndoReport();
-                  else setShowReportModal(true);
-                }}
-                disabled={isReportSubmitting}
-                hitSlop={STANDARD_HIT_SLOP}
-                accessibilityRole="button"
-                accessibilityLabel={isReported ? "Undo match report" : "Report match"}
-                accessibilityState={{ disabled: isReportSubmitting }}
+            <TouchableOpacity
+              onPress={() => {
+                if (isOwner) {
+                  Alert.alert("Unavailable", "You can’t report your own match.");
+                  return;
+                }
+                if (isReported) handleUndoReport();
+                else setShowReportModal(true);
+              }}
+              disabled={isReportSubmitting}
+              hitSlop={STANDARD_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isOwner
+                  ? "Report unavailable for your own match"
+                  : isReported
+                    ? "Undo match report"
+                    : "Report match"
+              }
+              accessibilityState={{ disabled: isReportSubmitting }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 8,
+                backgroundColor: isOwner
+                  ? "rgba(107,114,128,0.08)"
+                  : isReported
+                    ? "rgba(34,197,94,0.08)"
+                    : "rgba(220,38,38,0.06)",
+                opacity: isReportSubmitting ? 0.6 : 1,
+              }}
+            >
+              {isReportSubmitting ? (
+                <ActivityIndicator size="small" color={isReported ? "#22c55e" : "#dc2626"} />
+              ) : (
+                <LucideIcon
+                  name={isReported ? "CircleCheck" : "Flag"}
+                  size={14}
+                  color={isOwner ? "#6b7280" : isReported ? "#22c55e" : "#dc2626"}
+                />
+              )}
+              <Text
                 style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 10,
-                  backgroundColor: isReported ? "rgba(34,197,94,0.08)" : "rgba(220,38,38,0.06)",
-                  opacity: isReportSubmitting ? 0.6 : 1,
+                  fontSize: 11,
+                  fontWeight: "600",
+                  color: isOwner ? "#6b7280" : isReported ? "#22c55e" : "#dc2626",
                 }}
               >
-                {isReportSubmitting ? (
-                  <ActivityIndicator size="small" color={isReported ? "#22c55e" : "#dc2626"} />
-                ) : (
-                  <LucideIcon
-                    name={isReported ? "CircleCheck" : "Flag"}
-                    size={14}
-                    color={isReported ? "#22c55e" : "#dc2626"}
-                  />
-                )}
-                <Text
-                  style={{ fontSize: 12, fontWeight: "600", color: isReported ? "#22c55e" : "#dc2626" }}
-                >
-                  {isReported ? "Reported" : "Report"}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
+                {isOwner ? "Own" : isReported ? "Reported" : "Report"}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -435,7 +435,7 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
             style={{
               width: "100%",
               maxWidth: 400,
-              backgroundColor: theme.colors.card || "#fff",
+              backgroundColor: theme.colors.card,
               borderRadius: 24,
               overflow: "hidden",
               shadowColor: "#000",
@@ -453,7 +453,7 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 justifyContent: "space-between",
                 padding: 20,
                 borderBottomWidth: 1,
-                borderBottomColor: theme.colors.border || "#e5e7eb",
+                borderBottomColor: theme.colors.border,
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -513,7 +513,7 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                     backgroundColor:
                       selectedReason === reason
                         ? "rgba(220,38,38,0.06)"
-                        : theme.colors.background || "#f9fafb",
+                        : theme.colors.muted,
                   }}
                 >
                   <Text
@@ -561,7 +561,7 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                   padding: 12,
                   fontSize: 14,
                   color: theme.colors.foreground || "#1f2937",
-                  backgroundColor: theme.colors.background || "#f9fafb",
+                  backgroundColor: theme.colors.muted,
                   minHeight: 80,
                   textAlignVertical: "top",
                 }}
@@ -581,13 +581,15 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 }}
               >
                 {isReportSubmitting ? (
-                  <ActivityIndicator color="#ffffff" />
+                  <ActivityIndicator color={theme.colors.destructiveForeground} />
                 ) : (
                   <Text
                     style={{
                       fontSize: 15,
                       fontWeight: "700",
-                      color: selectedReason ? "#ffffff" : "#9ca3af",
+                      color: selectedReason
+                        ? theme.colors.destructiveForeground
+                        : theme.colors.mutedForeground,
                     }}
                   >
                     Submit Report
@@ -631,7 +633,7 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
           <View
             style={{
               width: "100%",
-              backgroundColor: theme.colors.card || "#fff",
+              backgroundColor: theme.colors.card,
               borderRadius: 20,
               padding: 24,
               shadowColor: "#000",
@@ -690,9 +692,15 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
                 }}
               >
                 {isReportSubmitting ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={theme.colors.destructiveForeground} />
                 ) : (
-                  <Text style={{ fontSize: 15, fontWeight: "700", color: "#fff" }}>
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "700",
+                      color: theme.colors.destructiveForeground,
+                    }}
+                  >
                     Yes, Withdraw Report
                   </Text>
                 )}
@@ -712,3 +720,5 @@ export function PublicMatchCard({ match }: PublicMatchCardProps) {
     </>
   );
 }
+
+export const PublicMatchCard = memo(PublicMatchCardComponent);

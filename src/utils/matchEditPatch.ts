@@ -24,7 +24,6 @@ export function buildFinishedMatchPatchInput(
     playerB: form.playerB,
     matchDate: form.matchDate.toISOString(),
     notes: form.notes,
-    sets: form.sets,
   };
 
   const location = form.location.trim();

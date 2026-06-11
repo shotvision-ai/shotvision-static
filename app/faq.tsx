@@ -7,6 +7,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import LucideIcon from "~/lib/icons/LucideIcon";
 import { useTheme } from "~/theming/ThemeProvider";
+import { supportMailto } from "~/src/constants/supportContact";
 
 type FAQ = {
   question: string;
@@ -34,7 +35,7 @@ export default function FAQ() {
     {
       question: "How long can I edit a finished match?",
       answer:
-        "You can edit a finished match for up to 48 hours after completion. After 48 hours, the match becomes locked and cannot be edited.",
+        "Match notes can be updated anytime. Scores, players, and other match details can be edited for up to 48 hours after completion.",
     },
     {
       question: "What does making a match public do?",
@@ -55,7 +56,7 @@ export default function FAQ() {
   const handleSubmitQuery = () => {
     if (customQuery.trim()) {
       Linking.openURL(
-        `mailto:support@shotvision.app?subject=Custom%20Query&body=${encodeURIComponent(customQuery)}`,
+        supportMailto({ subject: "Custom Query", body: customQuery }),
       );
       setCustomQuery("");
       alert("Your query has been sent to support!");

@@ -13,6 +13,7 @@ import {
   normalizeProfileImageUrl,
   withProfileImageCacheBust,
 } from "~/src/utils/profileImageUrl";
+import { useTheme } from "~/theming/ThemeProvider";
 
 export type ProfileAvatarProps = {
   /** Remote profile image; when empty/invalid, a built-in default is shown */
@@ -79,7 +80,7 @@ function DefaultAvatarVisual({
         justifyContent: "center",
       }}
     >
-      <LucideIcon name="User" size={Math.round(size * 0.45)} color="#ffffff" />
+      <LucideIcon name="User" size={Math.round(size * 0.45)} color="hsl(0 0% 100%)" />
     </View>
   );
 }
@@ -95,6 +96,7 @@ export function ProfileAvatar({
   imageDisplayKey,
   profileImageCacheRevision = 0,
 }: ProfileAvatarProps) {
+  const { theme } = useTheme();
   const remoteUrl = normalizeProfileImageUrl(imageUrl);
   const [remoteFailed, setRemoteFailed] = useState(false);
 
@@ -159,7 +161,7 @@ export function ProfileAvatar({
         width: size + (withBorder ? 4 : 0),
         height: size + (withBorder ? 4 : 0),
         borderRadius: (size + (withBorder ? 4 : 0)) / 2,
-        backgroundColor: withBorder ? "white" : "transparent",
+        backgroundColor: withBorder ? theme.colors.card : "transparent",
         padding: withBorder ? 2 : 0,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 4 },

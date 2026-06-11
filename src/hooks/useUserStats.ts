@@ -10,23 +10,29 @@ export const useUserStats = (enabled: boolean = true) => {
   const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
+  const hasStatsRef = useRef(false);
 
   const fetchStats = useCallback(async () => {
     if (!enabled) return;
 
     const requestId = ++requestSeqRef.current;
-    setIsLoading(true);
+    if (!hasStatsRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
       const data = await profileService.getMyStats();
       if (requestId !== requestSeqRef.current) return;
       setStats(normalizeUserStatsResponse(data));
+      hasStatsRef.current = true;
     } catch (err: unknown) {
       if (requestId !== requestSeqRef.current) return;
       devLog.error("[useUserStats]", err);
       setError(getUserFriendlyErrorMessage(err, "Failed to load statistics"));
-      setStats(null);
+      if (!hasStatsRef.current) {
+        setStats(null);
+      }
     } finally {
       if (requestId === requestSeqRef.current) {
         setIsLoading(false);
@@ -35,11 +41,20 @@ export const useUserStats = (enabled: boolean = true) => {
   }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      requestSeqRef.current += 1;
+      setStats(null);
+      hasStatsRef.current = false;
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     void fetchStats();
     return () => {
       requestSeqRef.current += 1;
     };
-  }, [fetchStats]);
+  }, [fetchStats, enabled]);
 
   return { stats, isLoading, error, refresh: fetchStats };
 };

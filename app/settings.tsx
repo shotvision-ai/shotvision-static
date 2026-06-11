@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { View, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { useEffect, useState } from "react";
+import { View, ScrollView, TouchableOpacity, Alert, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import { Text } from "~/components/ui/text";
@@ -12,6 +12,8 @@ import { getUserFriendlyErrorMessage } from "../src/services/api/userFriendlyErr
 import * as WebBrowser from "expo-web-browser";
 import { PRIVACY_POLICY_URL } from "../src/constants/legalUrls";
 import { devLog } from "../src/utils/devLog";
+import { Switch } from "~/components/ui/switch";
+import { useMatchCalendarStore } from "../src/stores/matchCalendarStore";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -23,10 +25,39 @@ export default function Settings() {
   const { setColorScheme } = useColorScheme();
   const rowIconColor = theme.colors.mutedForeground ?? "#6b7280";
   const rowChevronColor = theme.colors.mutedForeground ?? "#9ca3af";
+  const sectionAccent = theme.colors.primary ?? "hsl(221 83% 53%)";
+  const onPrimary = theme.colors.primaryForeground ?? "hsl(0 0% 100%)";
+
+  const calendarSyncEnabled = useMatchCalendarStore((s) => s.enabled);
+  const calendarSyncing = useMatchCalendarStore((s) => s.isSyncing);
+  const hydrateCalendarPrefs = useMatchCalendarStore((s) => s.hydrateForUser);
+  const setCalendarSyncEnabled = useMatchCalendarStore((s) => s.setEnabled);
+  const syncAllCalendar = useMatchCalendarStore((s) => s.syncAll);
 
   // Theme preference
   const [selectedTheme, setSelectedTheme] = useState<ThemeMode>("system");
   const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void hydrateCalendarPrefs(user.id);
+  }, [user?.id, hydrateCalendarPrefs]);
+
+  const handleCalendarSyncToggle = async (enabled: boolean) => {
+    if (!user?.id) return;
+    const result = await setCalendarSyncEnabled(user.id, enabled);
+    if (result === "denied") {
+      Alert.alert(
+        "Calendar permission required",
+        Platform.select({
+          ios: "Allow Shot Vision to access your calendar in Settings to sync scheduled matches.",
+          android:
+            "Allow calendar access so scheduled matches can appear in Google Calendar via your device.",
+          default: "Calendar access is required to sync scheduled matches.",
+        }) ?? "Calendar access is required to sync scheduled matches."
+      );
+    }
+  };
 
   const handleThemeChange = async (mode: ThemeMode) => {
     if (mode === selectedTheme) return;
@@ -211,7 +242,7 @@ export default function Settings() {
             style={{
               fontSize: 12,
               fontWeight: "700",
-              color: "#2563eb",
+              color: sectionAccent,
               letterSpacing: 0.8,
               marginBottom: 10,
               paddingHorizontal: 4,
@@ -223,7 +254,7 @@ export default function Settings() {
           <View
             className="bg-card rounded-2xl overflow-hidden"
             style={{
-              shadowColor: "#2563eb",
+              shadowColor: sectionAccent,
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.05,
               shadowRadius: 8,
@@ -244,7 +275,7 @@ export default function Settings() {
               </View>
               {selectedTheme === "dark" && (
                 <View className="w-5 h-5 rounded-full bg-primary items-center justify-center">
-                  <LucideIcon name="Check" size={14} color="white" />
+                  <LucideIcon name="Check" size={14} color={onPrimary} />
                 </View>
               )}
             </TouchableOpacity>
@@ -263,7 +294,7 @@ export default function Settings() {
               </View>
               {selectedTheme === "light" && (
                 <View className="w-5 h-5 rounded-full bg-primary items-center justify-center">
-                  <LucideIcon name="Check" size={14} color="white" />
+                  <LucideIcon name="Check" size={14} color={onPrimary} />
                 </View>
               )}
             </TouchableOpacity>
@@ -282,10 +313,76 @@ export default function Settings() {
               </View>
               {selectedTheme === "system" && (
                 <View className="w-5 h-5 rounded-full bg-primary items-center justify-center">
-                  <LucideIcon name="Check" size={14} color="white" />
+                  <LucideIcon name="Check" size={14} color={onPrimary} />
                 </View>
               )}
             </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Calendar Section */}
+        <View className="mb-5">
+          <Text
+            style={{
+              fontSize: 12,
+              fontWeight: "700",
+              color: sectionAccent,
+              letterSpacing: 0.8,
+              marginBottom: 10,
+              paddingHorizontal: 4,
+            }}
+          >
+            CALENDAR
+          </Text>
+
+          <View
+            className="bg-card rounded-2xl overflow-hidden"
+            style={{
+              shadowColor: sectionAccent,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.05,
+              shadowRadius: 8,
+              elevation: 2,
+            }}
+          >
+            <View className="flex-row items-center justify-between px-4 py-4 border-b border-border/10">
+              <View className="flex-row items-center gap-3 flex-1 pr-3">
+                <LucideIcon name="CalendarDays" size={20} color={rowIconColor} />
+                <View className="flex-1">
+                  <Text className="text-body font-medium text-foreground">Sync to calendar</Text>
+                  <Text className="text-caption text-muted-foreground mt-0.5">
+                    Scheduled matches appear in your device calendar (Google Calendar when linked)
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                checked={calendarSyncEnabled}
+                onCheckedChange={(value) => {
+                  void handleCalendarSyncToggle(value);
+                }}
+                disabled={calendarSyncing || isUpdating}
+                accessibilityLabel="Sync scheduled matches to calendar"
+              />
+            </View>
+
+            {calendarSyncEnabled ? (
+              <TouchableOpacity
+                onPress={() => {
+                  if (!user?.id) return;
+                  void syncAllCalendar(user.id);
+                }}
+                disabled={calendarSyncing}
+                className="flex-row items-center justify-between px-4 py-4"
+              >
+                <View className="flex-row items-center gap-3">
+                  <LucideIcon name="RefreshCw" size={20} color={rowIconColor} />
+                  <Text className="text-body font-medium text-foreground">
+                    {calendarSyncing ? "Syncing…" : "Sync now"}
+                  </Text>
+                </View>
+                <LucideIcon name="ChevronRight" size={20} color={rowChevronColor} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
 
@@ -295,7 +392,7 @@ export default function Settings() {
             style={{
               fontSize: 12,
               fontWeight: "700",
-              color: "#2563eb",
+              color: sectionAccent,
               letterSpacing: 0.8,
               marginBottom: 10,
               paddingHorizontal: 4,
@@ -307,7 +404,7 @@ export default function Settings() {
           <View
             className="bg-card rounded-2xl overflow-hidden"
             style={{
-              shadowColor: "#2563eb",
+              shadowColor: sectionAccent,
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.05,
               shadowRadius: 8,
@@ -373,7 +470,7 @@ export default function Settings() {
             style={{
               fontSize: 12,
               fontWeight: "700",
-              color: "#2563eb",
+              color: sectionAccent,
               letterSpacing: 0.8,
               marginBottom: 10,
               paddingHorizontal: 4,
@@ -385,7 +482,7 @@ export default function Settings() {
           <View
             className="bg-card rounded-2xl overflow-hidden"
             style={{
-              shadowColor: "#2563eb",
+              shadowColor: sectionAccent,
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.05,
               shadowRadius: 8,
@@ -458,7 +555,7 @@ export default function Settings() {
             style={{
               fontSize: 12,
               fontWeight: "700",
-              color: "#2563eb",
+              color: sectionAccent,
               letterSpacing: 0.8,
               marginBottom: 10,
               paddingHorizontal: 4,
@@ -470,7 +567,7 @@ export default function Settings() {
           <View
             className="bg-card rounded-2xl overflow-hidden"
             style={{
-              shadowColor: "#2563eb",
+              shadowColor: sectionAccent,
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.05,
               shadowRadius: 8,
@@ -483,7 +580,7 @@ export default function Settings() {
               className="flex-row items-center justify-between px-4 py-4 border-b border-border/10"
             >
               <View className="flex-row items-center gap-3">
-                <LucideIcon name="Share2" size={20} color="#2563eb" />
+                <LucideIcon name="Share2" size={20} color={sectionAccent} />
                 <Text className="text-body font-medium text-foreground">Share My Profile</Text>
               </View>
               <LucideIcon name="ChevronRight" size={20} color={rowChevronColor} />
